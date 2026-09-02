@@ -104,20 +104,34 @@ export default function Header({ title, subtitle, onRefresh, isRefreshing }: Hea
         </button>
 
         {/* Avatar */}
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <img
-              src="https://api.dicebear.com/7.x/avataaars/svg?seed=NguyenDanhThanh&backgroundColor=b6e3f4"
-              alt="avatar"
-              className="w-8 h-8 rounded-full border-2 border-blue-500/50 bg-slate-700"
-            />
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-slate-900" />
-          </div>
-          <div className="hidden md:block">
-            <p className="text-xs font-semibold text-white">Nguyễn Danh Thành</p>
-            <p className="text-[10px] text-slate-400">B23DCCN772</p>
-          </div>
-        </div>
+        {(() => {
+          const user = typeof window !== 'undefined' ? (() => {
+            try {
+              const raw = localStorage.getItem('user_info');
+              return raw ? JSON.parse(raw) : null;
+            } catch { return null; }
+          })() : null;
+          const fullName = user?.fullName || 'Nguyễn Danh Thành';
+          const studentCode = user?.studentCode || 'B23DCCN772';
+          const avatarUrl = user?.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=NguyenDanhThanh&backgroundColor=b6e3f4';
+
+          return (
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <img
+                  src={avatarUrl}
+                  alt={fullName}
+                  className="w-8 h-8 rounded-full border-2 border-blue-500/50 bg-slate-700"
+                />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-slate-900" />
+              </div>
+              <div className="hidden md:block">
+                <p className="text-xs font-semibold text-white">{fullName}</p>
+                <p className="text-[10px] text-slate-400">{studentCode}</p>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </motion.header>
   );

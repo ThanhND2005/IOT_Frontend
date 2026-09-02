@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Thermometer, Droplets, Sun, Zap, ZapOff, Activity,
@@ -12,10 +12,36 @@ import {
 import clsx from 'clsx';
 import Header from '../components/Header';
 import Sidebar from '../components/Sidebar';
-import {
-  mockSensorLatest, mockChartHistory, mockDevices,
-  type SensorReading, type ChartDataPoint, type Device
-} from '../mock/data';
+import type { SensorReading, ChartDataPoint, Device } from '../types';
+import { sensorService, deviceService } from '../services';
+
+// ─── Initial Fallback State ────────────────────────────────
+const initialSensors: SensorReading = {
+  temperature: {
+    value: 0,
+    unit: '°C',
+    status: 'ACTIVE',
+    minThreshold: 0,
+    maxThreshold: 100,
+    recordedAt: new Date().toISOString(),
+  },
+  humidity: {
+    value: 0,
+    unit: '%',
+    status: 'ACTIVE',
+    minThreshold: 0,
+    maxThreshold: 100,
+    recordedAt: new Date().toISOString(),
+  },
+  light: {
+    value: 0,
+    unit: 'lux',
+    status: 'ACTIVE',
+    minThreshold: 0,
+    maxThreshold: 1000,
+    recordedAt: new Date().toISOString(),
+  },
+};
 
 // ─── Sensor Card ────────────────────────────────────────────
 interface SensorCardProps {
@@ -32,8 +58,8 @@ interface SensorCardProps {
 }
 
 function SensorCard({ icon, label, value, unit, min, max, color, glowClass, index, trend }: SensorCardProps) {
-  const percentage = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
-  const isAlert = value > max * 0.9 || value < min * 1.1;
+  const percentage = max > min ? Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100)) : 50;
+  const isAlert = max > min && (value >= max * 0.9 || (min > 0 && value <= min * 1.1));
 
   return (
     <motion.div
@@ -57,7 +83,7 @@ function SensorCard({ icon, label, value, unit, min, max, color, glowClass, inde
           className="absolute top-3 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-xs border border-orange-500/30"
         >
           <AlertTriangle className="w-3 h-3" />
-          Alert
+          Cảnh báo
         </motion.div>
       )}
 
@@ -115,6 +141,10 @@ function DeviceSwitch({ device, onToggle, index }: DeviceSwitchProps) {
   const isOn = localStatus === 'ON';
   const isPending = localStatus === 'PENDING';
 
+  useEffect(() => {
+    setLocalStatus(device.currentStatus);
+  }, [device.currentStatus]);
+
   const handleToggle = async () => {
     if (isPending) return;
     const newAction = isOn ? 'OFF' : 'ON';
@@ -158,7 +188,7 @@ function DeviceSwitch({ device, onToggle, index }: DeviceSwitchProps) {
           )}>
             {isPending ? (
               <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>
-                <RefreshCw className={clsx('w-6 h-6', 'text-yellow-400')} />
+                <RefreshCw className="w-6 h-6 text-yellow-400" />
               </motion.div>
             ) : isOn ? (
               <motion.div
@@ -175,7 +205,7 @@ function DeviceSwitch({ device, onToggle, index }: DeviceSwitchProps) {
           {/* Info */}
           <div>
             <p className="font-semibold text-white text-sm">{device.deviceName}</p>
-            <p className="text-xs text-slate-500">{device.description}</p>
+            <p className="text-xs text-slate-500">{device.description || `Pin GPIO: ${device.pinGpio}`}</p>
             <div className="flex items-center gap-1.5 mt-1">
               <span className={clsx(
                 'w-1.5 h-1.5 rounded-full',
@@ -227,13 +257,15 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     return (
       <div className="glass-card p-3 text-xs shadow-xl border border-slate-600/50">
         <p className="text-slate-400 mb-2 font-medium">
-          {new Date(label).toLocaleTimeString('vi-VN')}
+          {label ? new Date(label).toLocaleTimeString('vi-VN') : ''}
         </p>
         {payload.map((entry: any) => (
           <div key={entry.dataKey} className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
             <span className="text-slate-300 capitalize">{entry.name}:</span>
-            <span className="font-bold" style={{ color: entry.color }}>{entry.value.toFixed(1)}</span>
+            <span className="font-bold" style={{ color: entry.color }}>
+              {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
+            </span>
           </div>
         ))}
       </div>
@@ -244,64 +276,139 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 // ─── Dashboard Page ───────────────────────────────────────
 export default function DashboardPage() {
-  const [sensors, setSensors] = useState<SensorReading>(mockSensorLatest);
-  const [chartData, setChartData] = useState<ChartDataPoint[]>(mockChartHistory);
-  const [devices, setDevices] = useState<Device[]>(mockDevices);
-  const [isConnected] = useState(true);
+  const [sensors, setSensors] = useState<SensorReading>(initialSensors);
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [isConnected, setIsConnected] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedChart, setSelectedChart] = useState<'all' | 'temperature' | 'humidity' | 'light'>('all');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Simulate SSE data updates
+  const sensorsRef = useRef(sensors);
   useEffect(() => {
-    const interval = setInterval(() => {
-      const newTemp = parseFloat((sensors.temperature.value + (Math.random() - 0.5) * 0.5).toFixed(1));
-      const newHum = parseFloat((sensors.humidity.value + (Math.random() - 0.5) * 0.8).toFixed(1));
-      const newLight = parseFloat((sensors.light.value + (Math.random() - 0.5) * 20).toFixed(0));
-
-      const updated: SensorReading = {
-        temperature: { ...sensors.temperature, value: newTemp, recordedAt: new Date().toISOString() },
-        humidity: { ...sensors.humidity, value: Math.min(100, Math.max(0, newHum)), recordedAt: new Date().toISOString() },
-        light: { ...sensors.light, value: Math.max(0, newLight), recordedAt: new Date().toISOString() },
-      };
-
-      setSensors(updated);
-      setChartData(prev => {
-        const newPoint: ChartDataPoint = {
-          timestamp: new Date().toISOString(),
-          temperature: newTemp,
-          humidity: Math.min(100, Math.max(0, newHum)),
-          light: Math.max(0, newLight),
-        };
-        return [...prev.slice(-29), newPoint];
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
+    sensorsRef.current = sensors;
   }, [sensors]);
+
+  // Load initial data
+  const loadDashboardData = useCallback(async () => {
+    try {
+      setErrorMessage(null);
+      const [latestSnap, history, deviceList] = await Promise.all([
+        sensorService.getLatestSnapshot().catch(() => initialSensors),
+        sensorService.getChartHistory(20).catch(() => []),
+        deviceService.getAllDevices().catch(() => []),
+      ]);
+
+      setSensors(latestSnap);
+      setChartData(history);
+      setDevices(deviceList);
+    } catch (err: any) {
+      console.error('Error loading dashboard data:', err);
+      setErrorMessage('Không thể tải dữ liệu bảng điều khiển. Đang thử lại...');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  // Connect SSE Stream
+  useEffect(() => {
+    const cleanup = sensorService.createSensorStream(
+      (streamData) => {
+        setIsConnected(true);
+        const nowIso = streamData.timestamp || new Date().toISOString();
+
+        setSensors((prev) => {
+          const updated: SensorReading = {
+            temperature: {
+              ...prev.temperature,
+              value: streamData.temperature?.value !== undefined ? Number(streamData.temperature.value) : prev.temperature.value,
+              unit: streamData.temperature?.unit || prev.temperature.unit,
+              recordedAt: nowIso,
+            },
+            humidity: {
+              ...prev.humidity,
+              value: streamData.humidity?.value !== undefined ? Number(streamData.humidity.value) : prev.humidity.value,
+              unit: streamData.humidity?.unit || prev.humidity.unit,
+              recordedAt: nowIso,
+            },
+            light: {
+              ...prev.light,
+              value: streamData.light?.value !== undefined ? Number(streamData.light.value) : prev.light.value,
+              unit: streamData.light?.unit || prev.light.unit,
+              recordedAt: nowIso,
+            },
+          };
+          return updated;
+        });
+
+        // Update chart data point
+        setChartData((prev) => {
+          const currentLatest = sensorsRef.current;
+          const newPoint: ChartDataPoint = {
+            timestamp: nowIso,
+            temperature: streamData.temperature?.value !== undefined
+              ? Number(streamData.temperature.value)
+              : currentLatest.temperature.value,
+            humidity: streamData.humidity?.value !== undefined
+              ? Number(streamData.humidity.value)
+              : currentLatest.humidity.value,
+            light: streamData.light?.value !== undefined
+              ? Number(streamData.light.value)
+              : currentLatest.light.value,
+          };
+          return [...prev.slice(-29), newPoint];
+        });
+      },
+      () => {
+        setIsConnected(false);
+      },
+      () => {
+        setIsConnected(true);
+      }
+    );
+
+    return () => {
+      cleanup();
+    };
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await new Promise(r => setTimeout(r, 800));
-    setSensors({ ...mockSensorLatest });
+    await loadDashboardData();
     setIsRefreshing(false);
-  }, []);
+  }, [loadDashboardData]);
 
   const handleDeviceToggle = async (id: string, action: 'ON' | 'OFF') => {
-    // Simulate 2-phase control with delay
-    await new Promise(r => setTimeout(r, 1500));
-    setDevices(prev => prev.map(d =>
-      d.id === id ? { ...d, currentStatus: action, lastActiveAt: new Date().toISOString() } : d
-    ));
+    try {
+      const response = await deviceService.controlDevice(id, action);
+      setDevices((prev) =>
+        prev.map((d) =>
+          d.id === id
+            ? {
+                ...d,
+                currentStatus: action,
+                lastActiveAt: response.confirmedAt || new Date().toISOString(),
+              }
+            : d
+        )
+      );
+    } catch (err: any) {
+      console.error('Device control failed:', err);
+      alert(err?.message || 'Không thể điều khiển thiết bị (Timeout hoặc lỗi máy chủ)');
+      throw err;
+    }
   };
 
-  const getTrend = (current: number, prev: number): 'up' | 'down' | 'stable' => {
+  const getTrend = (current: number, prev?: number): 'up' | 'down' | 'stable' => {
+    if (prev === undefined) return 'stable';
     const diff = current - prev;
     if (Math.abs(diff) < 0.2) return 'stable';
     return diff > 0 ? 'up' : 'down';
   };
 
-  const prevChart = chartData[chartData.length - 2] || chartData[0];
-  const latestChart = chartData[chartData.length - 1] || chartData[0];
+  const prevChart = chartData.length > 1 ? chartData[chartData.length - 2] : undefined;
 
   const sensorCards = [
     {
@@ -309,33 +416,33 @@ export default function DashboardPage() {
       label: 'Nhiệt độ',
       value: sensors.temperature.value,
       unit: sensors.temperature.unit,
-      min: sensors.temperature.minThreshold,
-      max: sensors.temperature.maxThreshold,
+      min: sensors.temperature.minThreshold ?? 0,
+      max: sensors.temperature.maxThreshold ?? 100,
       color: 'bg-orange-500',
       glowClass: 'shadow-orange-500/20',
-      trend: getTrend(latestChart.temperature, prevChart.temperature),
+      trend: getTrend(sensors.temperature.value, prevChart?.temperature),
     },
     {
       icon: <Droplets className="w-5 h-5 text-blue-400" />,
       label: 'Độ ẩm',
       value: sensors.humidity.value,
       unit: sensors.humidity.unit,
-      min: sensors.humidity.minThreshold,
-      max: sensors.humidity.maxThreshold,
+      min: sensors.humidity.minThreshold ?? 0,
+      max: sensors.humidity.maxThreshold ?? 100,
       color: 'bg-blue-500',
       glowClass: 'shadow-blue-500/20',
-      trend: getTrend(latestChart.humidity, prevChart.humidity),
+      trend: getTrend(sensors.humidity.value, prevChart?.humidity),
     },
     {
       icon: <Sun className="w-5 h-5 text-yellow-400" />,
       label: 'Ánh sáng',
       value: sensors.light.value,
       unit: sensors.light.unit,
-      min: sensors.light.minThreshold,
-      max: sensors.light.maxThreshold,
+      min: sensors.light.minThreshold ?? 0,
+      max: sensors.light.maxThreshold ?? 1000,
       color: 'bg-yellow-500',
       glowClass: 'shadow-yellow-500/20',
-      trend: getTrend(latestChart.light, prevChart.light),
+      trend: getTrend(sensors.light.value, prevChart?.light),
     },
   ];
 
@@ -367,7 +474,18 @@ export default function DashboardPage() {
                 className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400"
               >
                 <WifiOff className="w-4 h-4 flex-shrink-0 animate-pulse" />
-                <span className="text-sm font-medium">Đã ngắt kết nối với thiết bị. Đang thử lại...</span>
+                <span className="text-sm font-medium">Đã ngắt kết nối với thiết bị / luồng SSE. Đang thử kết nối lại...</span>
+              </motion.div>
+            )}
+            {errorMessage && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm"
+              >
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{errorMessage}</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -391,7 +509,7 @@ export default function DashboardPage() {
               <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
                 <div>
                   <h3 className="font-semibold text-white">Biểu đồ thời gian thực</h3>
-                  <p className="text-xs text-slate-400">Cập nhật mỗi 2 giây qua SSE</p>
+                  <p className="text-xs text-slate-400">Cập nhật tự động qua luồng SSE từ thiết bị</p>
                 </div>
                 {/* Chart filter tabs */}
                 <div className="flex gap-1 p-1 rounded-lg bg-slate-800/80 border border-slate-700/50">
@@ -400,7 +518,7 @@ export default function DashboardPage() {
                     { key: 'temperature', label: 'Nhiệt độ' },
                     { key: 'humidity', label: 'Độ ẩm' },
                     { key: 'light', label: 'Ánh sáng' },
-                  ].map(tab => (
+                  ].map((tab) => (
                     <button
                       key={tab.key}
                       onClick={() => setSelectedChart(tab.key as typeof selectedChart)}
@@ -417,38 +535,53 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                  <XAxis
-                    dataKey="timestamp"
-                    tickFormatter={(v) => new Date(v).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    tick={{ fontSize: 10, fill: '#64748b' }}
-                    axisLine={{ stroke: '#1e293b' }}
-                    tickLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend
-                    wrapperStyle={{ fontSize: '11px', paddingTop: '12px' }}
-                    formatter={(value) => <span style={{ color: '#94a3b8' }}>{value}</span>}
-                  />
-                  {chartLines.map(line => line.show && (
-                    <Line
-                      key={line.key}
-                      type="monotone"
-                      dataKey={line.key}
-                      name={line.name}
-                      stroke={line.color}
-                      strokeWidth={2}
-                      dot={false}
-                      activeDot={{ r: 4, strokeWidth: 0 }}
-                      animationDuration={300}
+              {chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                    <XAxis
+                      dataKey="timestamp"
+                      tickFormatter={(v) => {
+                        try {
+                          return new Date(v).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        } catch {
+                          return v;
+                        }
+                      }}
+                      tick={{ fontSize: 10, fill: '#64748b' }}
+                      axisLine={{ stroke: '#1e293b' }}
+                      tickLine={false}
+                      interval="preserveStartEnd"
                     />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+                    <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend
+                      wrapperStyle={{ fontSize: '11px', paddingTop: '12px' }}
+                      formatter={(value) => <span style={{ color: '#94a3b8' }}>{value}</span>}
+                    />
+                    {chartLines.map((line) => line.show && (
+                      <Line
+                        key={line.key}
+                        type="monotone"
+                        dataKey={line.key}
+                        name={line.name}
+                        stroke={line.color}
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4, strokeWidth: 0 }}
+                        animationDuration={300}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[260px] flex items-center justify-center text-slate-500 text-xs">
+                  <div className="flex flex-col items-center gap-2">
+                    <Activity className="w-8 h-8 opacity-30 animate-pulse" />
+                    <p>Đang chờ luồng dữ liệu cảm biến mới...</p>
+                  </div>
+                </div>
+              )}
             </motion.div>
 
             {/* Device Controls */}
@@ -460,7 +593,7 @@ export default function DashboardPage() {
             >
               <div>
                 <h3 className="font-semibold text-white mb-1">Điều khiển thiết bị</h3>
-                <p className="text-xs text-slate-400 mb-4">2-Phase Control với handshake</p>
+                <p className="text-xs text-slate-400 mb-4">2-Phase Control với handshake MQTT</p>
               </div>
 
               {devices.map((device, i) => (
@@ -472,6 +605,12 @@ export default function DashboardPage() {
                 />
               ))}
 
+              {devices.length === 0 && (
+                <div className="glass-card p-6 text-center text-slate-500 text-xs">
+                  Chưa có thiết bị nào được kết nối trong hệ thống
+                </div>
+              )}
+
               {/* Stats box */}
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -481,10 +620,10 @@ export default function DashboardPage() {
               >
                 <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Thống kê</h4>
                 {[
-                  { label: 'Thiết bị đang bật', value: devices.filter(d => d.currentStatus === 'ON').length, color: 'text-green-400' },
-                  { label: 'Thiết bị đã tắt', value: devices.filter(d => d.currentStatus === 'OFF').length, color: 'text-slate-400' },
-                  { label: 'Đang xử lý', value: devices.filter(d => d.currentStatus === 'PENDING').length, color: 'text-yellow-400' },
-                ].map(stat => (
+                  { label: 'Thiết bị đang bật', value: devices.filter((d) => d.currentStatus === 'ON').length, color: 'text-green-400' },
+                  { label: 'Thiết bị đã tắt', value: devices.filter((d) => d.currentStatus === 'OFF').length, color: 'text-slate-400' },
+                  { label: 'Đang xử lý', value: devices.filter((d) => d.currentStatus === 'PENDING').length, color: 'text-yellow-400' },
+                ].map((stat) => (
                   <div key={stat.label} className="flex items-center justify-between">
                     <span className="text-xs text-slate-500">{stat.label}</span>
                     <span className={clsx('text-sm font-bold', stat.color)}>{stat.value}</span>

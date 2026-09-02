@@ -41,6 +41,8 @@ export default function Sidebar({ isConnected = true }: SidebarProps) {
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user_info');
     navigate('/login');
   };
 

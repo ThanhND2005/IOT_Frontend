@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Eye, EyeOff, Cpu, Mail, Lock,
   ArrowRight, Wifi, Zap, Activity
 } from 'lucide-react';
 import clsx from 'clsx';
+import { authService } from '../services';
 
 // ─── Floating particle background ───────────────────────────
 function Particle({ index }: { index: number }) {
@@ -47,29 +48,37 @@ function StatBadge({
 // ─── Login Page ───────────────────────────────────────────────
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const from = (location.state as { from?: { pathname: string; search?: string } })?.from;
+  const redirectPath = from ? `${from.pathname}${from.search || ''}` : '/dashboard';
+
+  const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
+  const [focusedField, setFocusedField] = useState<'usernameOrEmail' | 'password' | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      setError('Vui lòng nhập đầy đủ email và mật khẩu.');
+    if (!usernameOrEmail || !password) {
+      setError('Vui lòng nhập đầy đủ tên đăng nhập/email và mật khẩu.');
       return;
     }
     setError('');
     setIsLoading(true);
 
-    // Simulate API POST /api/v1/auth/login
-    await new Promise(r => setTimeout(r, 1500));
-
-    // Mock: accept any credentials
-    localStorage.setItem('access_token', 'mock_token_xyz');
-    setIsLoading(false);
-    navigate('/dashboard');
+    try {
+      await authService.login({
+        usernameOrEmail: usernameOrEmail.trim(),
+        password,
+      });
+      setIsLoading(false);
+      navigate(redirectPath, { replace: true });
+    } catch (err: any) {
+      setIsLoading(false);
+      setError(err?.message || 'Đăng nhập không thành công. Vui lòng kiểm tra lại tài khoản.');
+    }
   };
 
   return (
@@ -192,27 +201,28 @@ export default function LoginPage() {
             onSubmit={handleSubmit}
             className="space-y-4"
           >
-            {/* Email */}
+            {/* Username or Email */}
             <div>
-              <label className="text-xs font-medium text-slate-400 block mb-1.5">Email</label>
+              <label className="text-xs font-medium text-slate-400 block mb-1.5">Tài khoản / Email</label>
               <div className={clsx(
                 'relative flex items-center rounded-xl border transition-all duration-200',
-                focusedField === 'email'
+                focusedField === 'usernameOrEmail'
                   ? 'border-blue-500/60 ring-1 ring-blue-500/25 bg-slate-800/80'
                   : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
               )}>
                 <Mail className={clsx(
                   'absolute left-3.5 w-4 h-4 transition-colors duration-200',
-                  focusedField === 'email' ? 'text-blue-400' : 'text-slate-500'
+                  focusedField === 'usernameOrEmail' ? 'text-blue-400' : 'text-slate-500'
                 )} />
                 <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  onFocus={() => setFocusedField('email')}
+                  type="text"
+                  value={usernameOrEmail}
+                  onChange={e => setUsernameOrEmail(e.target.value)}
+                  onFocus={() => setFocusedField('usernameOrEmail')}
                   onBlur={() => setFocusedField(null)}
-                  placeholder="admin@iot.com"
+                  placeholder="admin hoặc admin@example.com"
                   className="w-full pl-10 pr-4 py-3 bg-transparent text-sm text-slate-200 placeholder-slate-500 focus:outline-none rounded-xl"
+                  autoComplete="username"
                 />
               </div>
             </div>
@@ -238,6 +248,7 @@ export default function LoginPage() {
                   onBlur={() => setFocusedField(null)}
                   placeholder="••••••••"
                   className="w-full pl-10 pr-10 py-3 bg-transparent text-sm text-slate-200 placeholder-slate-500 focus:outline-none rounded-xl"
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"
@@ -281,14 +292,15 @@ export default function LoginPage() {
           </motion.form>
 
           {/* Hint */}
-          <motion.p
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.7 }}
-            className="mt-6 text-center text-xs text-slate-500"
+            className="mt-6 text-center text-xs text-slate-500 space-y-1"
           >
-            Demo: nhập bất kỳ email và mật khẩu
-          </motion.p>
+            <p>Tài khoản mẫu: <span className="font-mono text-slate-400">admin</span> / <span className="font-mono text-slate-400">Admin@123</span></p>
+            <p>Hoặc: <span className="font-mono text-slate-400">user</span> / <span className="font-mono text-slate-400">User@123</span></p>
+          </motion.div>
         </div>
       </motion.div>
     </div>

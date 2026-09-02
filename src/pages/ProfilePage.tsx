@@ -8,7 +8,8 @@ import {
 import clsx from 'clsx';
 import Header from '../components/Header';
 import Sidebar from '../components/Sidebar';
-import { mockUserProfile, type UserProfile } from '../mock/data';
+import type { UserProfile } from '../types';
+import { authService } from '../services';
 
 // ─── Link Card ───────────────────────────────────────────────
 interface LinkCardProps {
@@ -71,30 +72,54 @@ function CopyButton({ text }: { text: string }) {
 
 // ─── Profile Page ────────────────────────────────────────────
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [profile, setProfile] = useState<UserProfile | null>(authService.getStoredUser());
+  const [isLoading, setIsLoading] = useState(!profile);
 
   useEffect(() => {
-    // Simulate API call
-    const t = setTimeout(() => {
-      setProfile(mockUserProfile);
-      setIsLoading(false);
-    }, 600);
-    return () => clearTimeout(t);
+    const fetchUser = async () => {
+      try {
+        const user = await authService.getCurrentUser();
+        setProfile(user);
+      } catch (err) {
+        console.error('Failed to fetch user profile:', err);
+        // Fallback to stored user if any
+        const stored = authService.getStoredUser();
+        if (stored) {
+          setProfile(stored);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchUser();
   }, []);
 
-  const linkCards: LinkCardProps[] = profile ? [
+  const effectiveProfile = profile ? {
+    id: profile.id,
+    email: profile.email || 'b23dccn772@ptit.edu.vn',
+    fullName: profile.fullName || 'Nguyễn Danh Thành',
+    studentCode: profile.studentCode || 'B23DCCN772',
+    avatarUrl: profile.avatarUrl || 'https://api.dicebear.com/7.x/avataaars/svg?seed=NguyenDanhThanh&backgroundColor=b6e3f4',
+    githubUrl: profile.githubUrl || 'https://github.com/your-github/iot-project',
+    figmaUrl: profile.figmaUrl || 'https://www.figma.com/your-figma-link',
+    systemDocUrl: profile.systemDocUrl || 'https://docs.google.com/document/your-system-doc',
+    apiDocUrl: profile.apiDocUrl || 'http://localhost:8080/swagger-ui/index.html',
+    createdAt: profile.createdAt || new Date().toISOString(),
+  } : null;
+
+  const linkCards: LinkCardProps[] = effectiveProfile ? [
     {
-      href: profile.githubUrl,
+      href: effectiveProfile.githubUrl,
       icon: <Code2 className="w-5 h-5 text-white" />,
       label: 'GitHub Repository',
-      description: profile.githubUrl,
+      description: effectiveProfile.githubUrl,
       color: 'bg-slate-700',
       gradient: 'bg-gradient-to-r from-slate-700/20 to-transparent',
       delay: 0.5,
     },
     {
-      href: profile.figmaUrl,
+      href: effectiveProfile.figmaUrl,
       icon: <PenSquare className="w-5 h-5 text-white" />,
       label: 'Figma Design',
       description: 'Thiết kế UI/UX của hệ thống',
@@ -103,7 +128,7 @@ export default function ProfilePage() {
       delay: 0.6,
     },
     {
-      href: profile.systemDocUrl,
+      href: effectiveProfile.systemDocUrl,
       icon: <FileText className="w-5 h-5 text-white" />,
       label: 'System Documentation',
       description: 'Tài liệu kiến trúc & thiết kế hệ thống',
@@ -112,10 +137,10 @@ export default function ProfilePage() {
       delay: 0.7,
     },
     {
-      href: profile.apiDocUrl,
+      href: effectiveProfile.apiDocUrl,
       icon: <BookOpen className="w-5 h-5 text-white" />,
-      label: 'API Documentation',
-      description: 'Tài liệu Postman API endpoints',
+      label: 'API Documentation (Swagger)',
+      description: 'Tài liệu Backend RESTful API endpoints',
       color: 'bg-orange-600/70',
       gradient: 'bg-gradient-to-r from-orange-600/10 to-transparent',
       delay: 0.8,
@@ -135,10 +160,10 @@ export default function ProfilePage() {
                 <div className="w-24 h-24 rounded-full shimmer mx-auto" />
                 <div className="h-5 rounded shimmer mx-auto w-36" />
                 <div className="h-3 rounded shimmer mx-auto w-24" />
-                {[1, 2, 3].map(i => <div key={i} className="h-3 rounded shimmer" />)}
+                {[1, 2, 3].map((i) => <div key={i} className="h-3 rounded shimmer" />)}
               </div>
               <div className="md:col-span-2 space-y-3">
-                {[1, 2, 3, 4].map(i => (
+                {[1, 2, 3, 4].map((i) => (
                   <div key={i} className="glass-card p-4 flex gap-4">
                     <div className="w-10 h-10 rounded-xl shimmer flex-shrink-0" />
                     <div className="flex-1 space-y-2">
@@ -155,13 +180,13 @@ export default function ProfilePage() {
     );
   }
 
-  if (!profile) return null;
+  if (!effectiveProfile) return null;
 
   const infoItems = [
-    { icon: <Mail className="w-3.5 h-3.5" />, label: 'Email', value: profile.email },
-    { icon: <BadgeCheck className="w-3.5 h-3.5" />, label: 'Mã sinh viên', value: profile.studentCode },
-    { icon: <User className="w-3.5 h-3.5" />, label: 'Họ và tên', value: profile.fullName },
-    { icon: <CalendarDays className="w-3.5 h-3.5" />, label: 'Ngày tạo', value: new Date(profile.createdAt).toLocaleDateString('vi-VN') },
+    { icon: <Mail className="w-3.5 h-3.5" />, label: 'Email', value: effectiveProfile.email },
+    { icon: <BadgeCheck className="w-3.5 h-3.5" />, label: 'Mã sinh viên', value: effectiveProfile.studentCode },
+    { icon: <User className="w-3.5 h-3.5" />, label: 'Họ và tên', value: effectiveProfile.fullName },
+    { icon: <CalendarDays className="w-3.5 h-3.5" />, label: 'Ngày tạo', value: new Date(effectiveProfile.createdAt).toLocaleDateString('vi-VN') },
   ];
 
   return (
@@ -193,8 +218,8 @@ export default function ProfilePage() {
                 >
                   <div className="w-24 h-24 rounded-full border-4 border-blue-500/50 overflow-hidden bg-slate-700 shadow-xl shadow-blue-500/20">
                     <img
-                      src={profile.avatarUrl}
-                      alt={profile.fullName}
+                      src={effectiveProfile.avatarUrl}
+                      alt={effectiveProfile.fullName}
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -214,9 +239,9 @@ export default function ProfilePage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
                 >
-                  <h2 className="text-lg font-bold text-white mb-1">{profile.fullName}</h2>
+                  <h2 className="text-lg font-bold text-white mb-1">{effectiveProfile.fullName}</h2>
                   <p className="text-xs font-mono text-blue-400 bg-blue-500/10 border border-blue-500/25 rounded-full px-3 py-1 inline-block mb-4">
-                    {profile.studentCode}
+                    {effectiveProfile.studentCode}
                   </p>
                 </motion.div>
 
@@ -273,7 +298,7 @@ export default function ProfilePage() {
                 </motion.div>
 
                 <div className="space-y-3">
-                  {linkCards.map(card => (
+                  {linkCards.map((card) => (
                     <LinkCard key={card.label} {...card} />
                   ))}
                 </div>
@@ -328,7 +353,7 @@ export default function ProfilePage() {
                       { label: 'Broker', value: 'Mosquitto' },
                       { label: 'Database', value: 'PostgreSQL' },
                       { label: 'Backend', value: 'Java Spring Boot' },
-                    ].map(item => (
+                    ].map((item) => (
                       <div key={item.label} className="flex flex-col gap-0.5">
                         <span className="text-slate-500">{item.label}</span>
                         <span className="text-slate-200 font-medium">{item.value}</span>

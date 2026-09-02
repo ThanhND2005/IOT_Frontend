@@ -1,13 +1,14 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, Filter, ChevronLeft, ChevronRight,
-  Thermometer, Droplets, Sun, Download, SlidersHorizontal
+  Thermometer, Droplets, Sun, Download, SlidersHorizontal, RefreshCw
 } from 'lucide-react';
 import clsx from 'clsx';
 import Header from '../components/Header';
 import Sidebar from '../components/Sidebar';
-import { mockSensorLogs, type SensorLog } from '../mock/data';
+import type { SensorLog, SearchParam } from '../types';
+import { sensorService } from '../services';
 
 // ─── Sensor type config ─────────────────────────────────────
 const SENSOR_TYPE_CONFIG = {
@@ -36,9 +37,19 @@ const SENSOR_TYPE_CONFIG = {
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
+// UUID regex check
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ─── Sensor Type Badge ───────────────────────────────────────
 function SensorTypeBadge({ type }: { type: SensorLog['sensorType'] }) {
-  const config = SENSOR_TYPE_CONFIG[type];
+  const config = SENSOR_TYPE_CONFIG[type] || {
+    label: type,
+    icon: <SlidersHorizontal className="w-3.5 h-3.5" />,
+    color: 'text-slate-400',
+    bg: 'bg-slate-500/10',
+    border: 'border-slate-500/30',
+  };
+
   return (
     <span className={clsx(
       'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border',
@@ -56,7 +67,7 @@ const rowVariants = {
   visible: (i: number) => ({
     opacity: 1,
     x: 0,
-    transition: { delay: i * 0.03, duration: 0.3 },
+    transition: { delay: i * 0.02, duration: 0.25 },
   }),
 };
 
@@ -66,32 +77,79 @@ export default function SensorDataPage() {
   const [selectedType, setSelectedType] = useState<string>('ALL');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [isFiltering, setIsFiltering] = useState(false);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
+  const [sensorLogs, setSensorLogs] = useState<SensorLog[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [showFilter, setShowFilter] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Filter logic (mock)
-  const filteredData = mockSensorLogs.filter(log => {
-    const matchId = searchId === '' || log.id.toLowerCase().includes(searchId.toLowerCase());
-    const matchType = selectedType === 'ALL' || log.sensorType === selectedType;
-    return matchId && matchType;
-  });
+  // Fetch sensor logs from backend API
+  const fetchLogs = useCallback(async (targetPage = page, targetPageSize = pageSize) => {
+    setIsLoading(true);
+    try {
+      const filters: SearchParam[] = [];
 
-  const totalPages = Math.ceil(filteredData.length / pageSize);
-  const paginatedData = filteredData.slice((page - 1) * pageSize, page * pageSize);
+      if (selectedType !== 'ALL') {
+        filters.push({
+          field: 'sensor.sensorType',
+          value: selectedType,
+          operate: 'EQUAL',
+          type: 'ENUM',
+        });
+      }
 
-  const handleSearch = useCallback(async () => {
-    setIsFiltering(true);
-    await new Promise(r => setTimeout(r, 400));
+      const query = searchId.trim();
+      if (query) {
+        if (UUID_REGEX.test(query)) {
+          filters.push({
+            field: 'id',
+            value: query,
+            operate: 'EQUAL',
+            type: 'UUID',
+          });
+        } else {
+          filters.push({
+            field: 'sensor.sensorName',
+            value: query,
+            operate: 'LIKE',
+            type: 'STRING',
+          });
+        }
+      }
+
+      const res = await sensorService.searchSensorLogs(targetPage, targetPageSize, {
+        filters,
+        sortBy: 'recordedAt',
+        sortDirection: 'DESC',
+      });
+
+      if (res) {
+        setSensorLogs(res.content || []);
+        setTotalPages(res.totalPages || 1);
+        setTotalElements(res.totalElements || 0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch sensor logs:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [page, pageSize, selectedType, searchId]);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
+
+  const handleSearch = () => {
     setPage(1);
-    setIsFiltering(false);
-  }, []);
+    fetchLogs(1, pageSize);
+  };
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await new Promise(r => setTimeout(r, 800));
+    await fetchLogs();
     setIsRefreshing(false);
-  }, []);
+  }, [fetchLogs]);
 
   const handleReset = () => {
     setSearchId('');
@@ -99,12 +157,35 @@ export default function SensorDataPage() {
     setPage(1);
   };
 
-  // Summary counts
+  const handleExportCSV = () => {
+    if (sensorLogs.length === 0) return;
+    const headers = ['ID', 'Tên cảm biến', 'Loại', 'Giá trị', 'Đơn vị', 'Thời điểm đo'];
+    const rows = sensorLogs.map((log) => [
+      log.id,
+      `"${log.sensorName || ''}"`,
+      log.sensorType,
+      log.value,
+      log.unit,
+      `"${new Date(log.recordedAt).toLocaleString('vi-VN')}"`,
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `sensor_data_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Summary counts based on loaded data
   const summaryCounts = {
-    total: mockSensorLogs.length,
-    TEMPERATURE: mockSensorLogs.filter(l => l.sensorType === 'TEMPERATURE').length,
-    HUMIDITY: mockSensorLogs.filter(l => l.sensorType === 'HUMIDITY').length,
-    LIGHT: mockSensorLogs.filter(l => l.sensorType === 'LIGHT').length,
+    total: totalElements,
+    TEMPERATURE: sensorLogs.filter(l => l.sensorType === 'TEMPERATURE').length,
+    HUMIDITY: sensorLogs.filter(l => l.sensorType === 'HUMIDITY').length,
+    LIGHT: sensorLogs.filter(l => l.sensorType === 'LIGHT').length,
   };
 
   return (
@@ -119,14 +200,13 @@ export default function SensorDataPage() {
         />
 
         <main className="flex-1 overflow-y-auto p-6 space-y-5">
-
           {/* Summary Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { key: 'total', label: 'Tổng bản ghi', value: summaryCounts.total, icon: <SlidersHorizontal className="w-4 h-4" />, color: 'text-slate-300', bg: 'bg-slate-700/50' },
-              { key: 'TEMPERATURE', label: 'Nhiệt độ', value: summaryCounts.TEMPERATURE, icon: <Thermometer className="w-4 h-4" />, color: 'text-orange-400', bg: 'bg-orange-500/10' },
-              { key: 'HUMIDITY', label: 'Độ ẩm', value: summaryCounts.HUMIDITY, icon: <Droplets className="w-4 h-4" />, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-              { key: 'LIGHT', label: 'Ánh sáng', value: summaryCounts.LIGHT, icon: <Sun className="w-4 h-4" />, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+              { key: 'TEMPERATURE', label: 'Nhiệt độ (Trang)', value: summaryCounts.TEMPERATURE, icon: <Thermometer className="w-4 h-4" />, color: 'text-orange-400', bg: 'bg-orange-500/10' },
+              { key: 'HUMIDITY', label: 'Độ ẩm (Trang)', value: summaryCounts.HUMIDITY, icon: <Droplets className="w-4 h-4" />, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+              { key: 'LIGHT', label: 'Ánh sáng (Trang)', value: summaryCounts.LIGHT, icon: <Sun className="w-4 h-4" />, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
             ].map((item, i) => (
               <motion.div
                 key={item.key}
@@ -161,7 +241,7 @@ export default function SensorDataPage() {
             >
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4 text-blue-400" />
-                Bộ lọc
+                Bộ lọc tìm kiếm
               </div>
               <motion.div animate={{ rotate: showFilter ? 0 : -90 }} transition={{ duration: 0.2 }}>
                 <ChevronLeft className="w-4 h-4 text-slate-400 rotate-90" />
@@ -179,17 +259,17 @@ export default function SensorDataPage() {
                 >
                   <div className="p-5">
                     <div className="flex flex-wrap gap-4 items-end">
-                      {/* Search by ID */}
+                      {/* Search by ID or Name */}
                       <div className="flex-1 min-w-48">
-                        <label className="text-xs text-slate-400 mb-1.5 block font-medium">Tìm theo ID</label>
+                        <label className="text-xs text-slate-400 mb-1.5 block font-medium">Tìm theo ID hoặc Tên cảm biến</label>
                         <div className="relative">
                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                           <input
                             type="text"
                             value={searchId}
-                            onChange={e => setSearchId(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                            placeholder="Nhập ID bản ghi..."
+                            onChange={(e) => setSearchId(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                            placeholder="Nhập UUID bản ghi hoặc tên cảm biến..."
                             className="w-full pl-9 pr-3 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all"
                           />
                         </div>
@@ -200,7 +280,10 @@ export default function SensorDataPage() {
                         <label className="text-xs text-slate-400 mb-1.5 block font-medium">Loại cảm biến</label>
                         <select
                           value={selectedType}
-                          onChange={e => setSelectedType(e.target.value)}
+                          onChange={(e) => {
+                            setSelectedType(e.target.value);
+                            setPage(1);
+                          }}
                           className="w-full px-3 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all appearance-none cursor-pointer"
                         >
                           <option value="ALL">Tất cả loại</option>
@@ -214,11 +297,11 @@ export default function SensorDataPage() {
                       <div className="flex gap-2">
                         <button
                           onClick={handleSearch}
-                          disabled={isFiltering}
+                          disabled={isLoading}
                           className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-all duration-200"
                         >
                           <Search className="w-3.5 h-3.5" />
-                          {isFiltering ? 'Đang tìm...' : 'Tìm kiếm'}
+                          {isLoading ? 'Đang tìm...' : 'Tìm kiếm'}
                         </button>
                         <button
                           onClick={handleReset}
@@ -244,9 +327,13 @@ export default function SensorDataPage() {
             {/* Table header */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/50">
               <p className="text-sm text-slate-300">
-                <span className="font-semibold text-white">{filteredData.length}</span> bản ghi
+                <span className="font-semibold text-white">{totalElements}</span> bản ghi tìm thấy
               </p>
-              <button className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-lg transition-all">
+              <button
+                onClick={handleExportCSV}
+                disabled={sensorLogs.length === 0}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-lg transition-all disabled:opacity-40"
+              >
                 <Download className="w-3.5 h-3.5" />
                 Xuất CSV
               </button>
@@ -257,7 +344,7 @@ export default function SensorDataPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-700/50">
-                    {['ID', 'Tên cảm biến', 'Loại', 'Giá trị', 'Đơn vị', 'Thời điểm đo'].map(col => (
+                    {['ID', 'Tên cảm biến', 'Loại', 'Giá trị', 'Đơn vị', 'Thời điểm đo'].map((col) => (
                       <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
                         {col}
                       </th>
@@ -265,34 +352,47 @@ export default function SensorDataPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <AnimatePresence mode="popLayout">
-                    {paginatedData.map((log, i) => (
-                      <motion.tr
-                        key={log.id}
-                        custom={i}
-                        variants={rowVariants}
-                        initial="hidden"
-                        animate="visible"
-                        exit={{ opacity: 0, x: 20 }}
-                        className="border-b border-slate-800/50 hover:bg-slate-700/20 transition-colors"
-                      >
-                        <td className="px-4 py-3 text-xs font-mono text-slate-500">{log.id}</td>
-                        <td className="px-4 py-3 text-slate-200 font-medium">{log.sensorName}</td>
-                        <td className="px-4 py-3">
-                          <SensorTypeBadge type={log.sensorType} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="font-bold text-white tabular-nums">{log.value.toFixed(1)}</span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-400">{log.unit}</td>
-                        <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
-                          {new Date(log.recordedAt).toLocaleString('vi-VN')}
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-16 text-center text-slate-500">
+                        <div className="flex flex-col items-center gap-2">
+                          <RefreshCw className="w-6 h-6 animate-spin text-blue-400" />
+                          <p>Đang tải dữ liệu...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <AnimatePresence mode="popLayout">
+                      {sensorLogs.map((log, i) => (
+                        <motion.tr
+                          key={log.id}
+                          custom={i}
+                          variants={rowVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit={{ opacity: 0, x: 20 }}
+                          className="border-b border-slate-800/50 hover:bg-slate-700/20 transition-colors"
+                        >
+                          <td className="px-4 py-3 text-xs font-mono text-slate-500">{log.id}</td>
+                          <td className="px-4 py-3 text-slate-200 font-medium">{log.sensorName || 'Cảm biến'}</td>
+                          <td className="px-4 py-3">
+                            <SensorTypeBadge type={log.sensorType} />
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="font-bold text-white tabular-nums">
+                              {typeof log.value === 'number' ? log.value.toFixed(1) : log.value}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-400">{log.unit}</td>
+                          <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+                            {new Date(log.recordedAt).toLocaleString('vi-VN')}
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </AnimatePresence>
+                  )}
 
-                  {paginatedData.length === 0 && (
+                  {!isLoading && sensorLogs.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-4 py-16 text-center text-slate-500">
                         <div className="flex flex-col items-center gap-3">
@@ -312,10 +412,14 @@ export default function SensorDataPage() {
                 <span className="text-xs text-slate-400">Hiển thị</span>
                 <select
                   value={pageSize}
-                  onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+                  onChange={(e) => {
+                    const newSize = Number(e.target.value);
+                    setPageSize(newSize);
+                    setPage(1);
+                  }}
                   className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500/50"
                 >
-                  {PAGE_SIZE_OPTIONS.map(s => (
+                  {PAGE_SIZE_OPTIONS.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
@@ -324,8 +428,8 @@ export default function SensorDataPage() {
 
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -350,7 +454,7 @@ export default function SensorDataPage() {
                 })}
 
                 <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 >

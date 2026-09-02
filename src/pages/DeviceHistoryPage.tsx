@@ -1,13 +1,14 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Filter, ChevronLeft, ChevronRight, Download,
-  CheckCircle2, XCircle, Clock, Zap, ZapOff, History
+  CheckCircle2, XCircle, Clock, Zap, ZapOff, History, RefreshCw
 } from 'lucide-react';
 import clsx from 'clsx';
 import Header from '../components/Header';
 import Sidebar from '../components/Sidebar';
-import { mockDeviceHistory, type DeviceHistoryItem } from '../mock/data';
+import type { DeviceHistoryItem, SearchParam } from '../types';
+import { deviceService } from '../services';
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: DeviceHistoryItem['status'] }) {
@@ -27,7 +28,11 @@ function StatusBadge({ status }: { status: DeviceHistoryItem['status'] }) {
       icon: <Clock className="w-3 h-3 animate-spin" />,
       className: 'badge-pending',
     },
-  }[status];
+  }[status] || {
+    label: status,
+    icon: <Clock className="w-3 h-3" />,
+    className: 'badge-pending',
+  };
 
   return (
     <motion.span
@@ -63,7 +68,7 @@ const rowVariants = {
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.03, duration: 0.3 },
+    transition: { delay: i * 0.02, duration: 0.25 },
   }),
 };
 
@@ -72,37 +77,100 @@ export default function DeviceHistoryPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
+  const [historyItems, setHistoryItems] = useState<DeviceHistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [showFilter, setShowFilter] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
 
-  // Filter
-  const filteredData = mockDeviceHistory.filter(h => {
-    return selectedStatus === 'ALL' || h.status === selectedStatus;
-  });
+  // Fetch device history from API
+  const fetchHistory = useCallback(async (targetPage = page, targetPageSize = pageSize) => {
+    setIsLoading(true);
+    try {
+      const filters: SearchParam[] = [];
 
-  const totalPages = Math.ceil(filteredData.length / pageSize);
-  const paginatedData = filteredData.slice((page - 1) * pageSize, page * pageSize);
+      if (selectedStatus !== 'ALL') {
+        filters.push({
+          field: 'status',
+          value: selectedStatus,
+          operate: 'EQUAL',
+          type: 'ENUM',
+        });
+      }
+
+      const res = await deviceService.searchDeviceHistory(targetPage, targetPageSize, {
+        filters,
+        sortBy: 'createdAt',
+        sortDirection: 'DESC',
+      });
+
+      if (res) {
+        setHistoryItems(res.content || []);
+        setTotalPages(res.totalPages || 1);
+        setTotalElements(res.totalElements || 0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch device history:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [page, pageSize, selectedStatus]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await new Promise(r => setTimeout(r, 800));
+    await fetchHistory();
     setIsRefreshing(false);
-  }, []);
+  }, [fetchHistory]);
 
-  // Summary
+  const handleStatusFilter = (status: string) => {
+    setSelectedStatus(status);
+    setPage(1);
+  };
+
+  const handleExportCSV = () => {
+    if (historyItems.length === 0) return;
+    const headers = ['ID', 'Thiết bị', 'Hành động', 'Trạng thái', 'Thời gian xử lý (ms)', 'Lỗi', 'Người thực hiện', 'Thời điểm'];
+    const rows = historyItems.map((item) => [
+      item.id,
+      `"${item.deviceName || ''}"`,
+      item.action,
+      item.status,
+      item.executionTimeMs ?? '',
+      `"${item.errorMessage || ''}"`,
+      `"${item.fullName || 'Admin'}"`,
+      `"${new Date(item.createdAt).toLocaleString('vi-VN')}"`,
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `device_history_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Summary counts based on loaded items
   const summary = {
-    total: mockDeviceHistory.length,
-    SUCCESS: mockDeviceHistory.filter(h => h.status === 'SUCCESS').length,
-    ERROR: mockDeviceHistory.filter(h => h.status === 'ERROR').length,
-    PENDING: mockDeviceHistory.filter(h => h.status === 'PENDING').length,
+    total: totalElements,
+    SUCCESS: historyItems.filter((h) => h.status === 'SUCCESS').length,
+    ERROR: historyItems.filter((h) => h.status === 'ERROR').length,
+    PENDING: historyItems.filter((h) => h.status === 'PENDING').length,
   };
 
   const summaryCards = [
-    { key: 'total', label: 'Tổng thao tác', value: summary.total, icon: <History className="w-4 h-4" />, color: 'text-slate-300', bg: 'bg-slate-700/50' },
-    { key: 'SUCCESS', label: 'Thành công', value: summary.SUCCESS, icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-green-400', bg: 'bg-green-500/10' },
-    { key: 'ERROR', label: 'Lỗi', value: summary.ERROR, icon: <XCircle className="w-4 h-4" />, color: 'text-slate-400', bg: 'bg-slate-500/10' },
-    { key: 'PENDING', label: 'Đang xử lý', value: summary.PENDING, icon: <Clock className="w-4 h-4" />, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+    { key: 'ALL', label: 'Tổng thao tác', value: summary.total, icon: <History className="w-4 h-4" />, color: 'text-slate-300', bg: 'bg-slate-700/50' },
+    { key: 'SUCCESS', label: 'Thành công (Trang)', value: summary.SUCCESS, icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-green-400', bg: 'bg-green-500/10' },
+    { key: 'ERROR', label: 'Lỗi (Trang)', value: summary.ERROR, icon: <XCircle className="w-4 h-4" />, color: 'text-red-400', bg: 'bg-red-500/10' },
+    { key: 'PENDING', label: 'Đang xử lý (Trang)', value: summary.PENDING, icon: <Clock className="w-4 h-4" />, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
   ];
 
   const statusFilters = [
@@ -124,7 +192,6 @@ export default function DeviceHistoryPage() {
         />
 
         <main className="flex-1 overflow-y-auto p-6 space-y-5">
-
           {/* Summary Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {summaryCards.map((item, i) => (
@@ -134,10 +201,10 @@ export default function DeviceHistoryPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.08 }}
                 whileHover={{ scale: 1.02 }}
-                onClick={() => setSelectedStatus(item.key === 'total' ? 'ALL' : item.key)}
+                onClick={() => handleStatusFilter(item.key)}
                 className={clsx(
                   'glass-card p-3 flex items-center gap-3 cursor-pointer transition-all duration-200',
-                  (selectedStatus === item.key || (item.key === 'total' && selectedStatus === 'ALL')) && 'border-blue-500/40 shadow-blue-500/10 shadow-md'
+                  selectedStatus === item.key && 'border-blue-500/40 shadow-blue-500/10 shadow-md'
                 )}
               >
                 <div className={clsx('w-9 h-9 rounded-lg flex items-center justify-center', item.bg, item.color)}>
@@ -181,10 +248,10 @@ export default function DeviceHistoryPage() {
                   className="overflow-hidden border-t border-slate-700/50"
                 >
                   <div className="p-5 flex flex-wrap gap-2">
-                    {statusFilters.map(f => (
+                    {statusFilters.map((f) => (
                       <button
                         key={f.value}
-                        onClick={() => { setSelectedStatus(f.value); setPage(1); }}
+                        onClick={() => handleStatusFilter(f.value)}
                         className={clsx(
                           'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
                           selectedStatus === f.value
@@ -210,9 +277,13 @@ export default function DeviceHistoryPage() {
           >
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/50">
               <p className="text-sm text-slate-300">
-                <span className="font-semibold text-white">{filteredData.length}</span> thao tác
+                <span className="font-semibold text-white">{totalElements}</span> thao tác tìm thấy
               </p>
-              <button className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-lg transition-all">
+              <button
+                onClick={handleExportCSV}
+                disabled={historyItems.length === 0}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-lg transition-all disabled:opacity-40"
+              >
                 <Download className="w-3.5 h-3.5" />
                 Xuất CSV
               </button>
@@ -222,7 +293,7 @@ export default function DeviceHistoryPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-700/50">
-                    {['ID', 'Thiết bị', 'Hành động', 'Trạng thái', 'Thời gian xử lý', 'Người thực hiện', 'Thời điểm'].map(col => (
+                    {['ID', 'Thiết bị', 'Hành động', 'Trạng thái', 'Thời gian xử lý', 'Người thực hiện', 'Thời điểm'].map((col) => (
                       <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap">
                         {col}
                       </th>
@@ -230,45 +301,56 @@ export default function DeviceHistoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <AnimatePresence mode="popLayout">
-                    {paginatedData.map((item, i) => (
-                      <motion.tr
-                        key={item.id}
-                        custom={i}
-                        variants={rowVariants}
-                        initial="hidden"
-                        animate="visible"
-                        exit={{ opacity: 0, scale: 0.98 }}
-                        onClick={() => setSelectedRow(selectedRow === item.id ? null : item.id)}
-                        className={clsx(
-                          'border-b border-slate-800/50 transition-colors cursor-pointer',
-                          selectedRow === item.id ? 'bg-blue-500/5 border-l-2 border-l-blue-500' : 'hover:bg-slate-700/15'
-                        )}
-                      >
-                        <td className="px-4 py-3 text-xs font-mono text-slate-500">{item.id}</td>
-                        <td className="px-4 py-3 text-slate-200 font-medium whitespace-nowrap">{item.deviceName}</td>
-                        <td className="px-4 py-3">
-                          <ActionBadge action={item.action} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <StatusBadge status={item.status} />
-                        </td>
-                        <td className="px-4 py-3 text-xs tabular-nums">
-                          {item.executionTimeMs != null ? (
-                            <span className="text-green-400 font-medium">{item.executionTimeMs}ms</span>
-                          ) : (
-                            <span className="text-slate-500">—</span>
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
+                        <div className="flex flex-col items-center gap-2">
+                          <RefreshCw className="w-6 h-6 animate-spin text-blue-400" />
+                          <p>Đang tải dữ liệu...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <AnimatePresence mode="popLayout">
+                      {historyItems.map((item, i) => (
+                        <motion.tr
+                          key={item.id}
+                          custom={i}
+                          variants={rowVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit={{ opacity: 0, scale: 0.98 }}
+                          onClick={() => setSelectedRow(selectedRow === item.id ? null : item.id)}
+                          className={clsx(
+                            'border-b border-slate-800/50 transition-colors cursor-pointer',
+                            selectedRow === item.id ? 'bg-blue-500/5 border-l-2 border-l-blue-500' : 'hover:bg-slate-700/15'
                           )}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{item.fullName}</td>
-                        <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
-                          {new Date(item.createdAt).toLocaleString('vi-VN')}
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
+                        >
+                          <td className="px-4 py-3 text-xs font-mono text-slate-500">{item.id}</td>
+                          <td className="px-4 py-3 text-slate-200 font-medium whitespace-nowrap">{item.deviceName}</td>
+                          <td className="px-4 py-3">
+                            <ActionBadge action={item.action} />
+                          </td>
+                          <td className="px-4 py-3">
+                            <StatusBadge status={item.status} />
+                          </td>
+                          <td className="px-4 py-3 text-xs tabular-nums">
+                            {item.executionTimeMs != null ? (
+                              <span className="text-green-400 font-medium">{item.executionTimeMs}ms</span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{item.fullName || 'Admin'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+                            {new Date(item.createdAt).toLocaleString('vi-VN')}
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </AnimatePresence>
+                  )}
 
-                  {paginatedData.length === 0 && (
+                  {!isLoading && historyItems.length === 0 && (
                     <tr>
                       <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
                         <div className="flex flex-col items-center gap-3">
@@ -285,7 +367,7 @@ export default function DeviceHistoryPage() {
             {/* Error detail row */}
             <AnimatePresence>
               {selectedRow && (() => {
-                const item = paginatedData.find(h => h.id === selectedRow);
+                const item = historyItems.find((h) => h.id === selectedRow);
                 if (!item?.errorMessage) return null;
                 return (
                   <motion.div
@@ -313,18 +395,22 @@ export default function DeviceHistoryPage() {
                 <span className="text-xs text-slate-400">Hiển thị</span>
                 <select
                   value={pageSize}
-                  onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+                  onChange={(e) => {
+                    const newSize = Number(e.target.value);
+                    setPageSize(newSize);
+                    setPage(1);
+                  }}
                   className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500/50"
                 >
-                  {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  {PAGE_SIZE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <span className="text-xs text-slate-400">/ trang</span>
               </div>
 
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -347,7 +433,7 @@ export default function DeviceHistoryPage() {
                 })}
 
                 <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 >
