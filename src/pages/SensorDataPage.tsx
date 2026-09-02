@@ -40,6 +40,22 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50];
 // UUID regex check
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function getPaginationRange(currentPage: number, totalPages: number, maxVisible = 5): number[] {
+  if (totalPages <= 0) return [1];
+  if (totalPages <= maxVisible) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+  let end = start + maxVisible - 1;
+
+  if (end > totalPages) {
+    end = totalPages;
+    start = Math.max(1, end - maxVisible + 1);
+  }
+
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
 // ─── Sensor Type Badge ───────────────────────────────────────
 function SensorTypeBadge({ type }: { type: SensorLog['sensorType'] }) {
   const config = SENSOR_TYPE_CONFIG[type] || {
@@ -74,6 +90,7 @@ const rowVariants = {
 // ─── SensorData Page ─────────────────────────────────────────
 export default function SensorDataPage() {
   const [searchId, setSearchId] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [selectedType, setSelectedType] = useState<string>('ALL');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -85,7 +102,7 @@ export default function SensorDataPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Fetch sensor logs from backend API
-  const fetchLogs = useCallback(async (targetPage = page, targetPageSize = pageSize) => {
+  const fetchLogs = useCallback(async (targetPage = page, targetPageSize = pageSize, targetSearch = appliedSearch) => {
     setIsLoading(true);
     try {
       const filters: SearchParam[] = [];
@@ -99,7 +116,7 @@ export default function SensorDataPage() {
         });
       }
 
-      const query = searchId.trim();
+      const query = targetSearch.trim();
       if (query) {
         if (UUID_REGEX.test(query)) {
           filters.push({
@@ -125,7 +142,8 @@ export default function SensorDataPage() {
       });
 
       if (res) {
-        setSensorLogs(res.content || []);
+        const records = res.items || res.content || [];
+        setSensorLogs(records);
         setTotalPages(res.totalPages || 1);
         setTotalElements(res.totalElements || 0);
       }
@@ -134,15 +152,19 @@ export default function SensorDataPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [page, pageSize, selectedType, searchId]);
+  }, [page, pageSize, selectedType, appliedSearch]);
 
   useEffect(() => {
     fetchLogs();
   }, [fetchLogs]);
 
   const handleSearch = () => {
+    const trimmed = searchId.trim();
+    setAppliedSearch(trimmed);
     setPage(1);
-    fetchLogs(1, pageSize);
+    if (page === 1 && trimmed === appliedSearch) {
+      fetchLogs(1, pageSize, trimmed);
+    }
   };
 
   const handleRefresh = useCallback(async () => {
@@ -153,6 +175,7 @@ export default function SensorDataPage() {
 
   const handleReset = () => {
     setSearchId('');
+    setAppliedSearch('');
     setSelectedType('ALL');
     setPage(1);
   };
@@ -435,23 +458,20 @@ export default function SensorDataPage() {
                   <ChevronLeft className="w-4 h-4" />
                 </button>
 
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  const pageNum = Math.max(1, Math.min(page - 2 + i, totalPages - 4 + i));
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setPage(pageNum)}
-                      className={clsx(
-                        'w-7 h-7 text-xs font-medium rounded-lg transition-all',
-                        page === pageNum
-                          ? 'bg-blue-600 text-white shadow-sm'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                      )}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
+                {getPaginationRange(page, totalPages).map((pageNum) => (
+                  <button
+                    key={pageNum}
+                    onClick={() => setPage(pageNum)}
+                    className={clsx(
+                      'w-7 h-7 text-xs font-medium rounded-lg transition-all',
+                      page === pageNum
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                    )}
+                  >
+                    {pageNum}
+                  </button>
+                ))}
 
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}

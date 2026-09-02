@@ -14,12 +14,18 @@ export interface BaseResponse<T> {
 
 // --- Common Page Response ---
 export interface PageResponse<T> {
-  content: T[];
-  page: number;
-  size: number;
+  items?: T[];
+  content?: T[];
+  pageNumber?: number;
+  pageSize?: number;
+  page?: number;
+  size?: number;
   totalElements: number;
   totalPages: number;
-  last: boolean;
+  isFirst?: boolean;
+  isLast?: boolean;
+  hasNext?: boolean;
+  hasPrevious?: boolean;
 }
 
 // --- Dynamic Search Types ---
