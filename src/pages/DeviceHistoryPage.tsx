@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Filter, ChevronLeft, ChevronRight, Download,
   CheckCircle2, XCircle, Clock, Zap, ZapOff, History, RefreshCw,
-  Search, RotateCcw, Calendar, Cpu, Lightbulb, Fan, SlidersHorizontal
+  Search, RotateCcw, Calendar, Cpu, Lightbulb, Fan, SlidersHorizontal, X
 } from 'lucide-react';
 import clsx from 'clsx';
 import Header from '../components/Header';
@@ -106,10 +106,22 @@ function DeviceTypeBadge({ type, deviceName }: { type?: DeviceType | string | nu
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
-// Normalize DD/MM/YYYY or DD-MM-YYYY to YYYY-MM-DD
+// Normalize user-entered date/time to ISO-compatible format for database query
 function normalizeSearchTime(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return '';
+
+  // Case 1: "HH:mm DD/MM/YYYY" or "HH:mm:ss DD/MM/YYYY"
+  const timeFirstMatch = trimmed.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s+(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (timeFirstMatch) {
+    const time = timeFirstMatch[1];
+    const day = timeFirstMatch[2].padStart(2, '0');
+    const month = timeFirstMatch[3].padStart(2, '0');
+    const year = timeFirstMatch[4];
+    return `${year}-${month}-${day} ${time}`;
+  }
+
+  // Case 2: "DD/MM/YYYY" or "DD/MM/YYYY HH:mm"
   const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(.*)$/);
   if (ddmmyyyyMatch) {
     const day = ddmmyyyyMatch[1].padStart(2, '0');
@@ -118,6 +130,7 @@ function normalizeSearchTime(input: string): string {
     const rest = ddmmyyyyMatch[4] ? ddmmyyyyMatch[4].trim() : '';
     return rest ? `${year}-${month}-${day} ${rest}` : `${year}-${month}-${day}`;
   }
+
   return trimmed;
 }
 
@@ -153,6 +166,8 @@ export default function DeviceHistoryPage() {
   const [selectedStatus, setSelectedStatus] = useState<ActionStatus | 'ALL'>('ALL');
   const [selectedAction, setSelectedAction] = useState<ActionType | 'ALL'>('ALL');
   const [selectedDeviceType, setSelectedDeviceType] = useState<DeviceType | 'ALL'>('ALL');
+
+  const datePickerRef = useRef<HTMLInputElement>(null);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -416,33 +431,66 @@ export default function DeviceHistoryPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                       {/* 1. Thanh tìm kiếm theo thời điểm đo */}
                       <div>
-                        <label className="text-xs text-slate-400 mb-1.5 flex items-center gap-1.5 font-medium">
-                          <Calendar className="w-3.5 h-3.5 text-blue-400" />
-                          Thời điểm đo
+                        <label className="text-xs text-slate-400 mb-1.5 flex items-center justify-between font-medium">
+                          <span className="flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                            Thời điểm đo
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-normal">
+                            VD: 2026-09-02, 14:30
+                          </span>
                         </label>
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                        <div className="relative flex items-center">
+                          <Search className="absolute left-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                           <input
                             type="text"
                             value={searchTime}
                             onChange={(e) => setSearchTime(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                            placeholder="Nhập ngày/giờ (vd: 2026-09-02, 14:30...)"
-                            className="w-full pl-9 pr-8 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all"
+                            placeholder="Nhập ngày, giờ (2026-09-02, 14:30...)"
+                            className="w-full pl-9 pr-16 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all"
                           />
-                          {/* Quick date picker icon */}
-                          <label className="absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer text-slate-400 hover:text-slate-200" title="Chọn ngày từ lịch">
-                            <Calendar className="w-4 h-4" />
-                            <input
-                              type="date"
-                              className="sr-only"
-                              onChange={(e) => {
-                                if (e.target.value) {
-                                  setSearchTime(e.target.value);
+                          <div className="absolute right-2.5 flex items-center gap-1">
+                            {searchTime && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSearchTime('');
+                                  setAppliedSearchTime('');
+                                  setPage(1);
+                                  fetchHistory(1, pageSize, '', selectedStatus, selectedAction, selectedDeviceType);
+                                }}
+                                className="p-0.5 text-slate-400 hover:text-slate-200 rounded"
+                                title="Xóa tìm kiếm"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                try {
+                                  datePickerRef.current?.showPicker();
+                                } catch {
+                                  datePickerRef.current?.focus();
                                 }
                               }}
-                            />
-                          </label>
+                              className="p-1 text-slate-400 hover:text-blue-400 rounded transition-colors"
+                              title="Mở lịch chọn ngày"
+                            >
+                              <Calendar className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <input
+                            ref={datePickerRef}
+                            type="date"
+                            className="sr-only"
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                setSearchTime(e.target.value);
+                              }
+                            }}
+                          />
                         </div>
                       </div>
 
