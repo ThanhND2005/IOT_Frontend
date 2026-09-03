@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Bell, Search, RefreshCw, Clock } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 interface HeaderProps {
@@ -9,19 +9,12 @@ interface HeaderProps {
   isRefreshing?: boolean;
 }
 
-export default function Header({ title, subtitle, onRefresh, isRefreshing }: HeaderProps) {
+export default function Header({ title, subtitle }: HeaderProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [hasNotification, setHasNotification] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
-  }, []);
-
-  // Simulate notification
-  useEffect(() => {
-    const timeout = setTimeout(() => setHasNotification(true), 3000);
-    return () => clearTimeout(timeout);
   }, []);
 
   const formatTime = (date: Date) => {
@@ -65,43 +58,6 @@ export default function Header({ title, subtitle, onRefresh, isRefreshing }: Hea
           </div>
         </div>
 
-        {/* Search */}
-        <div className="relative hidden sm:block">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Tìm kiếm..."
-            className="w-40 pl-9 pr-3 py-1.5 text-xs bg-slate-800/80 border border-slate-700/50 rounded-lg text-slate-300 placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition-all duration-200"
-          />
-        </div>
-
-        {/* Refresh */}
-        {onRefresh && (
-          <button
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="p-2 rounded-lg bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:text-blue-400 hover:border-blue-500/50 transition-all duration-200 disabled:opacity-50"
-          >
-            <motion.div animate={{ rotate: isRefreshing ? 360 : 0 }} transition={{ duration: 1, repeat: isRefreshing ? Infinity : 0, ease: 'linear' }}>
-              <RefreshCw className="w-4 h-4" />
-            </motion.div>
-          </button>
-        )}
-
-        {/* Notifications */}
-        <button
-          className="relative p-2 rounded-lg bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:text-blue-400 hover:border-blue-500/50 transition-all duration-200"
-          onClick={() => setHasNotification(false)}
-        >
-          <Bell className="w-4 h-4" />
-          {hasNotification && (
-            <motion.span
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 border border-slate-900"
-            />
-          )}
-        </button>
 
         {/* Avatar */}
         {(() => {
