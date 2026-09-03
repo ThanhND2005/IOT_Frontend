@@ -108,6 +108,10 @@ export interface Device {
   description?: string | null;
 }
 
+export type ActionStatus = 'PENDING' | 'SUCCESS' | 'ERROR';
+export type ActionType = 'ON' | 'OFF';
+export type DeviceType = 'LED' | 'RELAY' | 'FAN';
+
 export interface DeviceControlRequest {
   action: 'ON' | 'OFF';
 }
@@ -126,6 +130,7 @@ export interface DeviceHistoryItem {
   id: string;
   deviceId: string;
   deviceName: string;
+  deviceType?: DeviceType | string | null;
   action: 'ON' | 'OFF';
   status: 'SUCCESS' | 'ERROR' | 'PENDING';
   source: string;

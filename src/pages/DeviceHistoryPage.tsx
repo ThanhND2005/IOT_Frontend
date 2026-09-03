@@ -2,12 +2,13 @@ import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Filter, ChevronLeft, ChevronRight, Download,
-  CheckCircle2, XCircle, Clock, Zap, ZapOff, History, RefreshCw
+  CheckCircle2, XCircle, Clock, Zap, ZapOff, History, RefreshCw,
+  Search, RotateCcw, Calendar, Cpu, Lightbulb, Fan, SlidersHorizontal
 } from 'lucide-react';
 import clsx from 'clsx';
 import Header from '../components/Header';
 import Sidebar from '../components/Sidebar';
-import type { DeviceHistoryItem, SearchParam } from '../types';
+import type { DeviceHistoryItem, SearchParam, ActionStatus, ActionType, DeviceType } from '../types';
 import { deviceService } from '../services';
 
 // ─── Status Badge ────────────────────────────────────────────
@@ -61,7 +62,64 @@ function ActionBadge({ action }: { action: 'ON' | 'OFF' }) {
   );
 }
 
+// ─── Device Type Badge ───────────────────────────────────────
+function DeviceTypeBadge({ type, deviceName }: { type?: DeviceType | string | null; deviceName?: string }) {
+  let resolvedType = type;
+  if (!resolvedType && deviceName) {
+    const lower = deviceName.toLowerCase();
+    if (lower.includes('led') || lower.includes('đèn')) resolvedType = 'LED';
+    else if (lower.includes('relay') || lower.includes('rơ-le')) resolvedType = 'RELAY';
+    else if (lower.includes('fan') || lower.includes('quạt')) resolvedType = 'FAN';
+  }
+
+  if (!resolvedType) return <span className="text-slate-500">—</span>;
+
+  const config = {
+    LED: {
+      label: 'LED',
+      icon: <Lightbulb className="w-3 h-3" />,
+      className: 'bg-amber-500/15 text-amber-400 border-amber-500/25',
+    },
+    RELAY: {
+      label: 'RELAY',
+      icon: <Cpu className="w-3 h-3" />,
+      className: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/25',
+    },
+    FAN: {
+      label: 'FAN',
+      icon: <Fan className="w-3 h-3" />,
+      className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
+    },
+  }[resolvedType as DeviceType] || {
+    label: resolvedType,
+    icon: <SlidersHorizontal className="w-3 h-3" />,
+    className: 'bg-slate-700/50 text-slate-400 border-slate-600/50',
+  };
+
+  return (
+    <span className={clsx('inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border', config.className)}>
+      {config.icon}
+      {config.label}
+    </span>
+  );
+}
+
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
+
+// Normalize DD/MM/YYYY or DD-MM-YYYY to YYYY-MM-DD
+function normalizeSearchTime(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+  const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(.*)$/);
+  if (ddmmyyyyMatch) {
+    const day = ddmmyyyyMatch[1].padStart(2, '0');
+    const month = ddmmyyyyMatch[2].padStart(2, '0');
+    const year = ddmmyyyyMatch[3];
+    const rest = ddmmyyyyMatch[4] ? ddmmyyyyMatch[4].trim() : '';
+    return rest ? `${year}-${month}-${day} ${rest}` : `${year}-${month}-${day}`;
+  }
+  return trimmed;
+}
 
 function getPaginationRange(currentPage: number, totalPages: number, maxVisible = 5): number[] {
   if (totalPages <= 0) return [1];
@@ -90,7 +148,12 @@ const rowVariants = {
 
 // ─── Device History Page ─────────────────────────────────────
 export default function DeviceHistoryPage() {
-  const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [searchTime, setSearchTime] = useState<string>('');
+  const [appliedSearchTime, setAppliedSearchTime] = useState<string>('');
+  const [selectedStatus, setSelectedStatus] = useState<ActionStatus | 'ALL'>('ALL');
+  const [selectedAction, setSelectedAction] = useState<ActionType | 'ALL'>('ALL');
+  const [selectedDeviceType, setSelectedDeviceType] = useState<DeviceType | 'ALL'>('ALL');
+
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(1);
@@ -102,38 +165,80 @@ export default function DeviceHistoryPage() {
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
 
   // Fetch device history from API
-  const fetchHistory = useCallback(async (targetPage = page, targetPageSize = pageSize) => {
-    setIsLoading(true);
-    try {
-      const filters: SearchParam[] = [];
+  const fetchHistory = useCallback(
+    async (
+      targetPage = page,
+      targetPageSize = pageSize,
+      targetTime = appliedSearchTime,
+      targetStatus = selectedStatus,
+      targetAction = selectedAction,
+      targetDeviceType = selectedDeviceType
+    ) => {
+      setIsLoading(true);
+      try {
+        const filters: SearchParam[] = [];
 
-      if (selectedStatus !== 'ALL') {
-        filters.push({
-          field: 'status',
-          value: selectedStatus,
-          operate: 'EQUAL',
-          type: 'ENUM',
+        // 1. Lọc theo trạng thái thực hiện (ActionStatus: PENDING, SUCCESS, ERROR)
+        if (targetStatus !== 'ALL') {
+          filters.push({
+            field: 'status',
+            value: targetStatus,
+            operate: 'EQUAL',
+            type: 'ENUM',
+          });
+        }
+
+        // 2. Lọc theo loại hành động (ActionType: ON, OFF)
+        if (targetAction !== 'ALL') {
+          filters.push({
+            field: 'action',
+            value: targetAction,
+            operate: 'EQUAL',
+            type: 'ENUM',
+          });
+        }
+
+        // 3. Lọc theo loại thiết bị (DeviceType: LED, RELAY, FAN)
+        if (targetDeviceType !== 'ALL') {
+          filters.push({
+            field: 'device.deviceType',
+            value: targetDeviceType,
+            operate: 'EQUAL',
+            type: 'ENUM',
+          });
+        }
+
+        // 4. Tìm kiếm theo thời điểm đo / thao tác (createdAt)
+        const queryTime = targetTime.trim();
+        if (queryTime) {
+          filters.push({
+            field: 'createdAt',
+            value: queryTime,
+            operate: 'LIKE',
+            type: 'STRING',
+          });
+        }
+
+        const res = await deviceService.searchDeviceHistory(targetPage, targetPageSize, {
+          filters,
+          sortBy: 'createdAt',
+          sortDirection: 'DESC',
         });
-      }
 
-      const res = await deviceService.searchDeviceHistory(targetPage, targetPageSize, {
-        filters,
-        sortBy: 'createdAt',
-        sortDirection: 'DESC',
-      });
-
-      if (res) {
-        const records = res.items || res.content || [];
-        setHistoryItems(records);
-        setTotalPages(res.totalPages || 1);
-        setTotalElements(res.totalElements || 0);
+        if (res) {
+          const records = res.items || res.content || [];
+          setHistoryItems(records);
+          setTotalPages(res.totalPages || 1);
+          setTotalElements(res.totalElements || 0);
+        }
+      } catch (err) {
+        console.error('Failed to fetch device history:', err);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (err) {
-      console.error('Failed to fetch device history:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [page, pageSize, selectedStatus]);
+    },
+    [page, pageSize, appliedSearchTime, selectedStatus, selectedAction, selectedDeviceType]
+  );
 
   useEffect(() => {
     fetchHistory();
@@ -145,17 +250,47 @@ export default function DeviceHistoryPage() {
     setIsRefreshing(false);
   }, [fetchHistory]);
 
+  const handleSearch = () => {
+    const normalized = normalizeSearchTime(searchTime);
+    setAppliedSearchTime(normalized);
+    setPage(1);
+    if (page === 1 && normalized === appliedSearchTime) {
+      fetchHistory(1, pageSize, normalized, selectedStatus, selectedAction, selectedDeviceType);
+    }
+  };
+
+  const handleReset = () => {
+    setSearchTime('');
+    setAppliedSearchTime('');
+    setSelectedStatus('ALL');
+    setSelectedAction('ALL');
+    setSelectedDeviceType('ALL');
+    setPage(1);
+    fetchHistory(1, pageSize, '', 'ALL', 'ALL', 'ALL');
+  };
+
   const handleStatusFilter = (status: string) => {
-    setSelectedStatus(status);
+    setSelectedStatus(status as ActionStatus | 'ALL');
+    setPage(1);
+  };
+
+  const handleActionFilter = (action: string) => {
+    setSelectedAction(action as ActionType | 'ALL');
+    setPage(1);
+  };
+
+  const handleDeviceTypeFilter = (devType: string) => {
+    setSelectedDeviceType(devType as DeviceType | 'ALL');
     setPage(1);
   };
 
   const handleExportCSV = () => {
     if (historyItems.length === 0) return;
-    const headers = ['ID', 'Thiết bị', 'Hành động', 'Trạng thái', 'Thời gian xử lý (ms)', 'Lỗi', 'Người thực hiện', 'Thời điểm'];
+    const headers = ['ID', 'Thiết bị', 'Loại thiết bị', 'Hành động', 'Trạng thái', 'Thời gian xử lý (ms)', 'Lỗi', 'Người thực hiện', 'Thời điểm'];
     const rows = historyItems.map((item) => [
       item.id,
       `"${item.deviceName || ''}"`,
+      `"${item.deviceType || ''}"`,
       item.action,
       item.status,
       item.executionTimeMs ?? '',
@@ -175,6 +310,14 @@ export default function DeviceHistoryPage() {
     document.body.removeChild(link);
   };
 
+  // Active filter count
+  const activeFilterCount = [
+    appliedSearchTime !== '',
+    selectedStatus !== 'ALL',
+    selectedAction !== 'ALL',
+    selectedDeviceType !== 'ALL',
+  ].filter(Boolean).length;
+
   // Summary counts based on loaded items
   const summary = {
     total: totalElements,
@@ -183,18 +326,18 @@ export default function DeviceHistoryPage() {
     PENDING: historyItems.filter((h) => h.status === 'PENDING').length,
   };
 
-  const summaryCards = [
+  const summaryCards: {
+    key: ActionStatus | 'ALL';
+    label: string;
+    value: number;
+    icon: React.ReactNode;
+    color: string;
+    bg: string;
+  }[] = [
     { key: 'ALL', label: 'Tổng thao tác', value: summary.total, icon: <History className="w-4 h-4" />, color: 'text-slate-300', bg: 'bg-slate-700/50' },
     { key: 'SUCCESS', label: 'Thành công (Trang)', value: summary.SUCCESS, icon: <CheckCircle2 className="w-4 h-4" />, color: 'text-green-400', bg: 'bg-green-500/10' },
     { key: 'ERROR', label: 'Lỗi (Trang)', value: summary.ERROR, icon: <XCircle className="w-4 h-4" />, color: 'text-red-400', bg: 'bg-red-500/10' },
     { key: 'PENDING', label: 'Đang xử lý (Trang)', value: summary.PENDING, icon: <Clock className="w-4 h-4" />, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
-  ];
-
-  const statusFilters = [
-    { value: 'ALL', label: 'Tất cả' },
-    { value: 'SUCCESS', label: 'Thành công' },
-    { value: 'ERROR', label: 'Lỗi' },
-    { value: 'PENDING', label: 'Đang xử lý' },
   ];
 
   return (
@@ -246,9 +389,14 @@ export default function DeviceHistoryPage() {
               onClick={() => setShowFilter(!showFilter)}
               className="w-full flex items-center justify-between px-5 py-3 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700/30 transition-colors"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <Filter className="w-4 h-4 text-blue-400" />
-                Lọc theo trạng thái
+                <span>Bộ lọc tìm kiếm lịch sử</span>
+                {activeFilterCount > 0 && (
+                  <span className="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full font-medium">
+                    {activeFilterCount} bộ lọc đang áp dụng
+                  </span>
+                )}
               </div>
               <motion.div animate={{ rotate: showFilter ? 0 : -90 }} transition={{ duration: 0.2 }}>
                 <ChevronLeft className="w-4 h-4 text-slate-400 rotate-90" />
@@ -264,21 +412,112 @@ export default function DeviceHistoryPage() {
                   transition={{ duration: 0.25 }}
                   className="overflow-hidden border-t border-slate-700/50"
                 >
-                  <div className="p-5 flex flex-wrap gap-2">
-                    {statusFilters.map((f) => (
+                  <div className="p-5 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* 1. Thanh tìm kiếm theo thời điểm đo */}
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1.5 flex items-center gap-1.5 font-medium">
+                          <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                          Thời điểm đo
+                        </label>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                          <input
+                            type="text"
+                            value={searchTime}
+                            onChange={(e) => setSearchTime(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                            placeholder="Nhập ngày/giờ (vd: 2026-09-02, 14:30...)"
+                            className="w-full pl-9 pr-8 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all"
+                          />
+                          {/* Quick date picker icon */}
+                          <label className="absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer text-slate-400 hover:text-slate-200" title="Chọn ngày từ lịch">
+                            <Calendar className="w-4 h-4" />
+                            <input
+                              type="date"
+                              className="sr-only"
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  setSearchTime(e.target.value);
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* 2. Dropdown lọc theo trạng thái thực hiện */}
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1.5 flex items-center gap-1.5 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
+                          Trạng thái thực hiện
+                        </label>
+                        <select
+                          value={selectedStatus}
+                          onChange={(e) => handleStatusFilter(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all cursor-pointer"
+                        >
+                          <option value="ALL">Tất cả trạng thái</option>
+                          <option value="SUCCESS">Thành công (SUCCESS)</option>
+                          <option value="ERROR">Lỗi (ERROR)</option>
+                          <option value="PENDING">Đang xử lý (PENDING)</option>
+                        </select>
+                      </div>
+
+                      {/* 3. Dropdown lọc theo loại hành động */}
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1.5 flex items-center gap-1.5 font-medium">
+                          <Zap className="w-3.5 h-3.5 text-yellow-400" />
+                          Loại hành động
+                        </label>
+                        <select
+                          value={selectedAction}
+                          onChange={(e) => handleActionFilter(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all cursor-pointer"
+                        >
+                          <option value="ALL">Tất cả hành động</option>
+                          <option value="ON">Bật thiết bị (ON)</option>
+                          <option value="OFF">Tắt thiết bị (OFF)</option>
+                        </select>
+                      </div>
+
+                      {/* 4. Dropdown lọc theo loại thiết bị */}
+                      <div>
+                        <label className="text-xs text-slate-400 mb-1.5 flex items-center gap-1.5 font-medium">
+                          <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+                          Loại thiết bị
+                        </label>
+                        <select
+                          value={selectedDeviceType}
+                          onChange={(e) => handleDeviceTypeFilter(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all cursor-pointer"
+                        >
+                          <option value="ALL">Tất cả loại thiết bị</option>
+                          <option value="LED">Đèn LED (LED)</option>
+                          <option value="RELAY">Rơ-le (RELAY)</option>
+                          <option value="FAN">Quạt (FAN)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-800/60">
                       <button
-                        key={f.value}
-                        onClick={() => handleStatusFilter(f.value)}
-                        className={clsx(
-                          'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
-                          selectedStatus === f.value
-                            ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/25'
-                            : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80 border border-slate-700'
-                        )}
+                        onClick={handleReset}
+                        className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg border border-slate-700 transition-all duration-200"
                       >
-                        {f.label}
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Đặt lại
                       </button>
-                    ))}
+                      <button
+                        onClick={handleSearch}
+                        disabled={isLoading}
+                        className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-sm shadow-blue-500/25"
+                      >
+                        <Search className="w-4 h-4" />
+                        {isLoading ? 'Đang tìm...' : 'Tìm kiếm'}
+                      </button>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -310,7 +549,7 @@ export default function DeviceHistoryPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-700/50">
-                    {['ID', 'Thiết bị', 'Hành động', 'Trạng thái', 'Thời gian xử lý', 'Người thực hiện', 'Thời điểm'].map((col) => (
+                    {['ID', 'Thiết bị', 'Loại thiết bị', 'Hành động', 'Trạng thái', 'Thời gian xử lý', 'Người thực hiện', 'Thời điểm'].map((col) => (
                       <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap">
                         {col}
                       </th>
@@ -320,7 +559,7 @@ export default function DeviceHistoryPage() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
+                      <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
                         <div className="flex flex-col items-center gap-2">
                           <RefreshCw className="w-6 h-6 animate-spin text-blue-400" />
                           <p>Đang tải dữ liệu...</p>
@@ -345,6 +584,9 @@ export default function DeviceHistoryPage() {
                         >
                           <td className="px-4 py-3 text-xs font-mono text-slate-500">{item.id}</td>
                           <td className="px-4 py-3 text-slate-200 font-medium whitespace-nowrap">{item.deviceName}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <DeviceTypeBadge type={item.deviceType} deviceName={item.deviceName} />
+                          </td>
                           <td className="px-4 py-3">
                             <ActionBadge action={item.action} />
                           </td>
@@ -369,7 +611,7 @@ export default function DeviceHistoryPage() {
 
                   {!isLoading && historyItems.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
+                      <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
                         <div className="flex flex-col items-center gap-3">
                           <History className="w-8 h-8 opacity-30" />
                           <p>Không có dữ liệu lịch sử</p>
