@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Search, Filter, ChevronLeft, ChevronRight,
-  Thermometer, Droplets, Sun, Download, SlidersHorizontal, RefreshCw
+  Search, Filter, ChevronLeft, ChevronRight, ChevronDown,
+  Thermometer, Droplets, Sun, Download, SlidersHorizontal, RefreshCw,
+  Database, RotateCcw, X
 } from 'lucide-react';
 import clsx from 'clsx';
 import Header from '../components/Header';
@@ -14,24 +14,24 @@ import { sensorService } from '../services';
 const SENSOR_TYPE_CONFIG = {
   TEMPERATURE: {
     label: 'Nhiệt độ',
-    icon: <Thermometer className="w-3.5 h-3.5" />,
-    color: 'text-orange-400',
-    bg: 'bg-orange-500/10',
-    border: 'border-orange-500/30',
+    icon: <Thermometer className="w-3.5 h-3.5 text-orange-600" />,
+    color: 'text-orange-700',
+    bg: 'bg-orange-50',
+    border: 'border-orange-200',
   },
   HUMIDITY: {
     label: 'Độ ẩm',
-    icon: <Droplets className="w-3.5 h-3.5" />,
-    color: 'text-blue-400',
-    bg: 'bg-blue-500/10',
-    border: 'border-blue-500/30',
+    icon: <Droplets className="w-3.5 h-3.5 text-blue-600" />,
+    color: 'text-blue-700',
+    bg: 'bg-blue-50',
+    border: 'border-blue-200',
   },
   LIGHT: {
     label: 'Ánh sáng',
-    icon: <Sun className="w-3.5 h-3.5" />,
-    color: 'text-yellow-400',
-    bg: 'bg-yellow-500/10',
-    border: 'border-yellow-500/30',
+    icon: <Sun className="w-3.5 h-3.5 text-amber-600" />,
+    color: 'text-amber-700',
+    bg: 'bg-amber-50',
+    border: 'border-amber-200',
   },
 };
 
@@ -60,10 +60,10 @@ function getPaginationRange(currentPage: number, totalPages: number, maxVisible 
 function SensorTypeBadge({ type }: { type: SensorLog['sensorType'] }) {
   const config = SENSOR_TYPE_CONFIG[type] || {
     label: type,
-    icon: <SlidersHorizontal className="w-3.5 h-3.5" />,
-    color: 'text-slate-400',
-    bg: 'bg-slate-500/10',
-    border: 'border-slate-500/30',
+    icon: <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />,
+    color: 'text-slate-700',
+    bg: 'bg-slate-100',
+    border: 'border-slate-200',
   };
 
   return (
@@ -76,16 +76,6 @@ function SensorTypeBadge({ type }: { type: SensorLog['sensorType'] }) {
     </span>
   );
 }
-
-// ─── Table Row Animation ────────────────────────────────────
-const rowVariants = {
-  hidden: { opacity: 0, x: -20 },
-  visible: (i: number) => ({
-    opacity: 1,
-    x: 0,
-    transition: { delay: i * 0.02, duration: 0.25 },
-  }),
-};
 
 // ─── SensorData Page ─────────────────────────────────────────
 export default function SensorDataPage() {
@@ -212,7 +202,7 @@ export default function SensorDataPage() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950">
+    <div className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
@@ -226,138 +216,137 @@ export default function SensorDataPage() {
           {/* Summary Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { key: 'total', label: 'Tổng bản ghi', value: summaryCounts.total, icon: <SlidersHorizontal className="w-4 h-4" />, color: 'text-slate-300', bg: 'bg-slate-700/50' },
-              { key: 'TEMPERATURE', label: 'Nhiệt độ (Trang)', value: summaryCounts.TEMPERATURE, icon: <Thermometer className="w-4 h-4" />, color: 'text-orange-400', bg: 'bg-orange-500/10' },
-              { key: 'HUMIDITY', label: 'Độ ẩm (Trang)', value: summaryCounts.HUMIDITY, icon: <Droplets className="w-4 h-4" />, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-              { key: 'LIGHT', label: 'Ánh sáng (Trang)', value: summaryCounts.LIGHT, icon: <Sun className="w-4 h-4" />, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
-            ].map((item, i) => (
-              <motion.div
+              { key: 'total', label: 'Tổng bản ghi', value: summaryCounts.total, icon: <Database className="w-4 h-4 text-indigo-600" />, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-100' },
+              { key: 'TEMPERATURE', label: 'Nhiệt độ (Trang)', value: summaryCounts.TEMPERATURE, icon: <Thermometer className="w-4 h-4 text-orange-600" />, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-100' },
+              { key: 'HUMIDITY', label: 'Độ ẩm (Trang)', value: summaryCounts.HUMIDITY, icon: <Droplets className="w-4 h-4 text-blue-600" />, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-100' },
+              { key: 'LIGHT', label: 'Ánh sáng (Trang)', value: summaryCounts.LIGHT, icon: <Sun className="w-4 h-4 text-amber-600" />, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-100' },
+            ].map((item) => (
+              <div
                 key={item.key}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.08 }}
-                whileHover={{ scale: 1.02 }}
                 className="glass-card p-3 flex items-center gap-3 cursor-default"
               >
-                <div className={clsx('w-9 h-9 rounded-lg flex items-center justify-center', item.bg, item.color)}>
+                <div className={clsx('w-9 h-9 rounded-lg flex items-center justify-center border', item.bg)}>
                   {item.icon}
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">{item.label}</p>
+                  <p className="text-xs text-slate-500">{item.label}</p>
                   <p className={clsx('text-lg font-bold', item.color)}>{item.value}</p>
                 </div>
-              </motion.div>
+              </div>
             ))}
           </div>
 
           {/* Filter Panel */}
-          <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="glass-card overflow-hidden"
-          >
+          <div className="glass-card overflow-hidden">
             {/* Filter header */}
             <button
               onClick={() => setShowFilter(!showFilter)}
-              className="w-full flex items-center justify-between px-5 py-3 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700/30 transition-colors"
+              className="w-full flex items-center justify-between px-5 py-3 text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 cursor-pointer"
             >
               <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-blue-400" />
-                Bộ lọc tìm kiếm
+                <Filter className="w-4 h-4 text-blue-600" />
+                <span>Bộ lọc tìm kiếm</span>
               </div>
-              <motion.div animate={{ rotate: showFilter ? 0 : -90 }} transition={{ duration: 0.2 }}>
-                <ChevronLeft className="w-4 h-4 text-slate-400 rotate-90" />
-              </motion.div>
+              <ChevronDown className={clsx('w-4 h-4 text-slate-400 transition-transform', showFilter && 'rotate-180')} />
             </button>
 
-            <AnimatePresence>
-              {showFilter && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="overflow-hidden border-t border-slate-700/50"
-                >
-                  <div className="p-5">
-                    <div className="flex flex-wrap gap-4 items-end">
-                      {/* Search by ID or Name */}
-                      <div className="flex-1 min-w-48">
-                        <label className="text-xs text-slate-400 mb-1.5 block font-medium">Tìm theo ID hoặc Tên cảm biến</label>
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                          <input
-                            type="text"
-                            value={searchId}
-                            onChange={(e) => setSearchId(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                            placeholder="Nhập UUID bản ghi hoặc tên cảm biến..."
-                            className="w-full pl-9 pr-3 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Type Filter */}
-                      <div className="flex-1 min-w-48">
-                        <label className="text-xs text-slate-400 mb-1.5 block font-medium">Loại cảm biến</label>
-                        <select
-                          value={selectedType}
-                          onChange={(e) => {
-                            setSelectedType(e.target.value);
-                            setPage(1);
-                          }}
-                          className="w-full px-3 py-2 text-sm bg-slate-800/80 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 transition-all appearance-none cursor-pointer"
-                        >
-                          <option value="ALL">Tất cả loại</option>
-                          <option value="TEMPERATURE">Nhiệt độ</option>
-                          <option value="HUMIDITY">Độ ẩm</option>
-                          <option value="LIGHT">Ánh sáng</option>
-                        </select>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleSearch}
-                          disabled={isLoading}
-                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-all duration-200"
-                        >
-                          <Search className="w-3.5 h-3.5" />
-                          {isLoading ? 'Đang tìm...' : 'Tìm kiếm'}
-                        </button>
-                        <button
-                          onClick={handleReset}
-                          className="flex items-center gap-2 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-medium rounded-lg transition-all duration-200"
-                        >
-                          Reset
-                        </button>
+            {showFilter && (
+              <div className="overflow-hidden border-t border-slate-200">
+                <div className="p-5">
+                  <div className="flex flex-wrap gap-4 items-end">
+                    {/* Search by ID or Name */}
+                    <div className="flex-1 min-w-48">
+                      <label className="text-xs text-slate-600 mb-1.5 block font-medium">Tìm theo ID hoặc Tên cảm biến</label>
+                      <div className="relative flex items-center">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          value={searchId}
+                          onChange={(e) => setSearchId(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                          placeholder="Nhập UUID bản ghi hoặc tên cảm biến..."
+                          className="w-full pl-9 pr-8 py-2 text-sm bg-white border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        />
+                        {searchId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSearchId('');
+                              setAppliedSearch('');
+                              setPage(1);
+                              fetchLogs(1, pageSize, '');
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
+                            title="Xóa tìm kiếm"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
+
+                    {/* Type Filter */}
+                    <div className="flex-1 min-w-48">
+                      <label className="text-xs text-slate-600 mb-1.5 block font-medium">Loại cảm biến</label>
+                      <select
+                        value={selectedType}
+                        onChange={(e) => {
+                          setSelectedType(e.target.value);
+                          setPage(1);
+                        }}
+                        className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none cursor-pointer"
+                      >
+                        <option value="ALL">Tất cả loại</option>
+                        <option value="TEMPERATURE">Nhiệt độ</option>
+                        <option value="HUMIDITY">Độ ẩm</option>
+                        <option value="LIGHT">Ánh sáng</option>
+                      </select>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleReset}
+                        className="flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-lg cursor-pointer border border-slate-200"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
+                        Đặt lại
+                      </button>
+                      <button
+                        onClick={handleSearch}
+                        disabled={isLoading}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium rounded-lg cursor-pointer"
+                      >
+                        {isLoading ? (
+                          <RefreshCw className="w-3.5 h-3.5 text-white animate-spin" />
+                        ) : (
+                          <Search className="w-3.5 h-3.5 text-white" />
+                        )}
+                        {isLoading ? 'Đang tìm...' : 'Tìm kiếm'}
+                      </button>
+                    </div>
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Table */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="glass-card overflow-hidden"
-          >
+          <div className="glass-card overflow-hidden">
             {/* Table header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/50">
-              <p className="text-sm text-slate-300">
-                <span className="font-semibold text-white">{totalElements}</span> bản ghi tìm thấy
-              </p>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-blue-600" />
+                <p className="text-sm text-slate-600">
+                  <span className="font-semibold text-slate-900">{totalElements}</span> bản ghi tìm thấy
+                </p>
+              </div>
               <button
                 onClick={handleExportCSV}
                 disabled={sensorLogs.length === 0}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-lg transition-all disabled:opacity-40"
+                className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg disabled:opacity-40 cursor-pointer border border-slate-200"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 text-slate-600" />
                 Xuất CSV
               </button>
             </div>
@@ -366,9 +355,9 @@ export default function SensorDataPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-700/50">
+                  <tr className="border-b border-slate-200 bg-slate-50">
                     {['ID', 'Tên cảm biến', 'Loại', 'Giá trị', 'Đơn vị', 'Thời điểm đo'].map((col) => (
-                      <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      <th key={col} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                         {col}
                       </th>
                     ))}
@@ -377,49 +366,42 @@ export default function SensorDataPage() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-16 text-center text-slate-500">
+                      <td colSpan={6} className="px-4 py-16 text-center text-slate-400">
                         <div className="flex flex-col items-center gap-2">
-                          <RefreshCw className="w-6 h-6 animate-spin text-blue-400" />
+                          <RefreshCw className="w-6 h-6 text-blue-600 animate-spin" />
                           <p>Đang tải dữ liệu...</p>
                         </div>
                       </td>
                     </tr>
                   ) : (
-                    <AnimatePresence mode="popLayout">
-                      {sensorLogs.map((log, i) => (
-                        <motion.tr
-                          key={log.id}
-                          custom={i}
-                          variants={rowVariants}
-                          initial="hidden"
-                          animate="visible"
-                          exit={{ opacity: 0, x: 20 }}
-                          className="border-b border-slate-800/50 hover:bg-slate-700/20 transition-colors"
-                        >
-                          <td className="px-4 py-3 text-xs font-mono text-slate-500">{log.id}</td>
-                          <td className="px-4 py-3 text-slate-200 font-medium">{log.sensorName || 'Cảm biến'}</td>
-                          <td className="px-4 py-3">
-                            <SensorTypeBadge type={log.sensorType} />
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="font-bold text-white tabular-nums">
-                              {typeof log.value === 'number' ? log.value.toFixed(1) : log.value}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-400">{log.unit}</td>
-                          <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
-                            {new Date(log.recordedAt).toLocaleString('vi-VN')}
-                          </td>
-                        </motion.tr>
-                      ))}
-                    </AnimatePresence>
+                    sensorLogs.map((log) => (
+                      <tr
+                        key={log.id}
+                        className="border-b border-slate-100 hover:bg-slate-50/80"
+                      >
+                        <td className="px-4 py-3 text-xs font-mono text-slate-400">{log.id}</td>
+                        <td className="px-4 py-3 text-slate-800 font-medium">{log.sensorName || 'Cảm biến'}</td>
+                        <td className="px-4 py-3">
+                          <SensorTypeBadge type={log.sensorType} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-bold text-slate-900 tabular-nums">
+                            {typeof log.value === 'number' ? log.value.toFixed(1) : log.value}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">{log.unit}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                          {new Date(log.recordedAt).toLocaleString('vi-VN')}
+                        </td>
+                      </tr>
+                    ))
                   )}
 
                   {!isLoading && sensorLogs.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-16 text-center text-slate-500">
+                      <td colSpan={6} className="px-4 py-16 text-center text-slate-400">
                         <div className="flex flex-col items-center gap-3">
-                          <Search className="w-8 h-8 opacity-30" />
+                          <Search className="w-8 h-8 text-slate-300" />
                           <p>Không tìm thấy dữ liệu phù hợp</p>
                         </div>
                       </td>
@@ -430,9 +412,9 @@ export default function SensorDataPage() {
             </div>
 
             {/* Pagination */}
-            <div className="flex items-center justify-between px-5 py-3 border-t border-slate-700/50">
+            <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">Hiển thị</span>
+                <span className="text-xs text-slate-500">Hiển thị</span>
                 <select
                   value={pageSize}
                   onChange={(e) => {
@@ -440,22 +422,22 @@ export default function SensorDataPage() {
                     setPageSize(newSize);
                     setPage(1);
                   }}
-                  className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-blue-500/50"
+                  className="px-2 py-1 text-xs bg-white border border-slate-200 rounded text-slate-700 focus:outline-none focus:border-blue-500"
                 >
                   {PAGE_SIZE_OPTIONS.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
-                <span className="text-xs text-slate-400">/ trang</span>
+                <span className="text-xs text-slate-500">/ trang</span>
               </div>
 
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <ChevronLeft className="w-4 h-4" />
+                  <ChevronLeft className="w-4 h-4 text-slate-600" />
                 </button>
 
                 {getPaginationRange(page, totalPages).map((pageNum) => (
@@ -463,10 +445,10 @@ export default function SensorDataPage() {
                     key={pageNum}
                     onClick={() => setPage(pageNum)}
                     className={clsx(
-                      'w-7 h-7 text-xs font-medium rounded-lg transition-all',
+                      'w-7 h-7 text-xs font-medium rounded-lg cursor-pointer',
                       page === pageNum
                         ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     )}
                   >
                     {pageNum}
@@ -476,17 +458,17 @@ export default function SensorDataPage() {
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight className="w-4 h-4 text-slate-600" />
                 </button>
               </div>
 
-              <span className="text-xs text-slate-400 hidden sm:block">
+              <span className="text-xs text-slate-500 hidden sm:block">
                 Trang {page} / {totalPages || 1}
               </span>
             </div>
-          </motion.div>
+          </div>
         </main>
       </div>
     </div>

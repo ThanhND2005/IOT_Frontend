@@ -1,25 +1,35 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
     box-sizing: border-box;
+    animation: none !important;
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition: none !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
   }
   
   body {
-    @apply bg-slate-950 text-slate-100 font-sans;
+    @apply bg-white text-slate-900 font-sans;
     margin: 0;
     padding: 0;
   }
 
   :root {
     --scrollbar-width: 6px;
-    --scrollbar-track: #1e293b;
-    --scrollbar-thumb: #475569;
-    --scrollbar-thumb-hover: #64748b;
+    --scrollbar-track: #f8fafc;
+    --scrollbar-thumb: #cbd5e1;
+    --scrollbar-thumb-hover: #94a3b8;
   }
 
   /* Custom scrollbar */
@@ -43,30 +53,30 @@
 @layer components {
   /* Glass card */
   .glass-card {
-    @apply bg-slate-800/60 backdrop-blur-sm border border-slate-700/50 rounded-xl;
+    @apply bg-white border border-slate-200 rounded-xl shadow-sm;
   }
 
   /* Gradient text */
   .gradient-text {
-    @apply bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent;
   }
 
   /* Glow effect */
   .glow-blue {
-    box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
   }
 
   .glow-green {
-    box-shadow: 0 0 15px rgba(34, 197, 94, 0.4);
+    box-shadow: 0 0 15px rgba(34, 197, 94, 0.2);
   }
 
   .glow-red {
-    box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
   }
 
   /* Shimmer loading */
   .shimmer {
-    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
     background-size: 200% 100%;
     animation: shimmer 2s linear infinite;
   }
@@ -78,25 +88,25 @@
 
   /* Badge */
   .badge-success {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200;
   }
 
   .badge-error {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-500/20 text-slate-400 border border-slate-500/30;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200;
   }
 
   .badge-pending {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200;
   }
 
   /* Sidebar active */
   .sidebar-active {
-    @apply bg-blue-600/20 text-blue-400 border-l-2 border-blue-500;
+    @apply bg-blue-50 text-blue-600 border-l-2 border-blue-600;
   }
 
   /* Sidebar item */
   .sidebar-item {
-    @apply flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-slate-100 hover:bg-slate-700/50 rounded-lg transition-all duration-200 cursor-pointer;
+    @apply flex items-center gap-3 px-4 py-3 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all duration-200 cursor-pointer;
   }
 }
 

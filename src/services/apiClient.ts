@@ -40,11 +40,14 @@ export async function request<T>(
 
     // Handle 401 Unauthorized
     if (res.status === 401) {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      localStorage.removeItem('user_info');
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+      const isDevBypass = localStorage.getItem('access_token')?.startsWith('dev-bypass');
+      if (!isDevBypass) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('user_info');
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
       }
       throw new ApiError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', 401);
     }

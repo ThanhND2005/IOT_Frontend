@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   Thermometer, Droplets, Sun, Zap, ZapOff, Activity,
-  TrendingUp, TrendingDown, AlertTriangle, WifiOff, RefreshCw,
-  Power
+  TrendingUp, TrendingDown, AlertTriangle, RefreshCw,
+  Power, Lightbulb, Fan, Cpu, SlidersHorizontal
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -52,21 +51,17 @@ interface SensorCardProps {
   min: number;
   max: number;
   color: string;
+  iconBg: string;
   glowClass: string;
-  index: number;
+  index?: number;
   trend: 'up' | 'down' | 'stable';
 }
 
-function SensorCard({ icon, label, value, unit, min, max, color, glowClass, index, trend }: SensorCardProps) {
-  const percentage = max > min ? Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100)) : 50;
+function SensorCard({ icon, label, value, unit, min, max, color, iconBg, glowClass, trend }: SensorCardProps) {
   const isAlert = max > min && (value >= max * 0.9 || (min > 0 && value <= min * 1.1));
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 30 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.1, duration: 0.5, ease: 'easeOut' }}
-      whileHover={{ scale: 1.02, y: -2 }}
+    <div
       className={clsx(
         'glass-card p-5 relative overflow-hidden cursor-default',
         isAlert && 'border-orange-500/50'
@@ -77,55 +72,32 @@ function SensorCard({ icon, label, value, unit, min, max, color, glowClass, inde
 
       {/* Alert badge */}
       {isAlert && (
-        <motion.div
-          animate={{ opacity: [1, 0.5, 1] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-          className="absolute top-3 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-xs border border-orange-500/30"
-        >
-          <AlertTriangle className="w-3 h-3" />
+        <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 text-xs border border-orange-200">
+          <AlertTriangle className="w-3.5 h-3.5 text-orange-600 flex-shrink-0" />
           Cảnh báo
-        </motion.div>
+        </div>
       )}
 
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
-        <div className={`w-10 h-10 rounded-xl ${color} bg-opacity-20 flex items-center justify-center ${glowClass}`}>
+        <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center border', iconBg, glowClass)}>
           {icon}
         </div>
         <div className="flex items-center gap-1 text-xs">
-          {trend === 'up' && <TrendingUp className="w-3.5 h-3.5 text-green-400" />}
-          {trend === 'down' && <TrendingDown className="w-3.5 h-3.5 text-red-400" />}
+          {trend === 'up' && <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />}
+          {trend === 'down' && <TrendingDown className="w-3.5 h-3.5 text-rose-600" />}
           {trend === 'stable' && <Activity className="w-3.5 h-3.5 text-slate-400" />}
         </div>
       </div>
 
       {/* Value */}
-      <motion.div
-        key={value}
-        initial={{ opacity: 0, y: 5 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-1"
-      >
-        <span className="text-3xl font-bold text-white tabular-nums">{value.toFixed(1)}</span>
-        <span className="text-sm text-slate-400 ml-1">{unit}</span>
-      </motion.div>
-
-      <p className="text-xs text-slate-400 mb-3">{label}</p>
-
-      {/* Progress bar */}
-      <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
-        <motion.div
-          className={`h-full rounded-full ${color}`}
-          initial={{ width: 0 }}
-          animate={{ width: `${percentage}%` }}
-          transition={{ duration: 1, delay: index * 0.1 + 0.3 }}
-        />
+      <div className="mb-1">
+        <span className="text-3xl font-bold text-slate-900 tabular-nums">{value.toFixed(1)}</span>
+        <span className="text-sm text-slate-500 ml-1">{unit}</span>
       </div>
-      <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-        <span>{min}</span>
-        <span>{max}{unit}</span>
-      </div>
-    </motion.div>
+
+      <p className="text-xs text-slate-500">{label}</p>
+    </div>
   );
 }
 
@@ -133,10 +105,10 @@ function SensorCard({ icon, label, value, unit, min, max, color, glowClass, inde
 interface DeviceSwitchProps {
   device: Device;
   onToggle: (id: string, action: 'ON' | 'OFF') => Promise<void>;
-  index: number;
+  index?: number;
 }
 
-function DeviceSwitch({ device, onToggle, index }: DeviceSwitchProps) {
+function DeviceSwitch({ device, onToggle }: DeviceSwitchProps) {
   const [localStatus, setLocalStatus] = useState<'ON' | 'OFF' | 'PENDING'>(device.currentStatus);
   const isOn = localStatus === 'ON';
   const isPending = localStatus === 'PENDING';
@@ -157,63 +129,65 @@ function DeviceSwitch({ device, onToggle, index }: DeviceSwitchProps) {
     }
   };
 
+  const devType = device.deviceType?.toUpperCase() || (
+    device.deviceName?.toLowerCase().includes('led') || device.deviceName?.toLowerCase().includes('đèn') ? 'LED' :
+    device.deviceName?.toLowerCase().includes('fan') || device.deviceName?.toLowerCase().includes('quạt') ? 'FAN' :
+    device.deviceName?.toLowerCase().includes('relay') || device.deviceName?.toLowerCase().includes('rơ-le') ? 'RELAY' : ''
+  );
+
+  const renderDeviceIcon = () => {
+    if (isPending) return <RefreshCw className="w-6 h-6 text-amber-500" />;
+    if (devType === 'LED') {
+      return <Lightbulb className={clsx('w-6 h-6', isOn ? 'text-amber-500' : 'text-slate-400')} />;
+    }
+    if (devType === 'FAN') {
+      return <Fan className={clsx('w-6 h-6', isOn ? 'text-emerald-500' : 'text-slate-400')} />;
+    }
+    if (devType === 'RELAY') {
+      return <Cpu className={clsx('w-6 h-6', isOn ? 'text-cyan-600' : 'text-slate-400')} />;
+    }
+    return isOn ? <Zap className="w-6 h-6 text-blue-600" /> : <ZapOff className="w-6 h-6 text-slate-400" />;
+  };
+
+  const getIconContainerStyle = () => {
+    if (isPending) return 'bg-amber-50 text-amber-600 border border-amber-200';
+    if (!isOn) return 'bg-slate-100 text-slate-400 border border-slate-200';
+    if (devType === 'LED') return 'bg-amber-50 text-amber-600 border border-amber-200';
+    if (devType === 'FAN') return 'bg-emerald-50 text-emerald-600 border border-emerald-200';
+    if (devType === 'RELAY') return 'bg-cyan-50 text-cyan-600 border border-cyan-200';
+    return 'bg-blue-50 text-blue-600 border border-blue-200';
+  };
+
   return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ delay: index * 0.1 + 0.3 }}
-      whileHover={{ scale: 1.01 }}
+    <div
       className={clsx(
-        'glass-card p-5 relative overflow-hidden transition-all duration-300',
-        isOn && !isPending && 'border-blue-500/30 shadow-blue-500/10 shadow-lg',
-        isPending && 'border-yellow-500/30'
+        'glass-card p-5 relative overflow-hidden',
+        isOn && !isPending && 'border-blue-500/40 shadow-sm',
+        isPending && 'border-amber-400/50'
       )}
     >
-      {/* BG glow when ON */}
-      {isOn && !isPending && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="absolute inset-0 bg-gradient-to-br from-blue-600/5 to-transparent pointer-events-none"
-        />
-      )}
-
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {/* Icon */}
           <div className={clsx(
-            'w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300',
-            isOn ? 'bg-blue-500/20' : 'bg-slate-700/50',
-            isPending && 'bg-yellow-500/20'
+            'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
+            getIconContainerStyle()
           )}>
-            {isPending ? (
-              <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>
-                <RefreshCw className="w-6 h-6 text-yellow-400" />
-              </motion.div>
-            ) : isOn ? (
-              <motion.div
-                animate={{ scale: [1, 1.1, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-              >
-                <Zap className="w-6 h-6 text-blue-400" />
-              </motion.div>
-            ) : (
-              <ZapOff className="w-6 h-6 text-slate-500" />
-            )}
+            {renderDeviceIcon()}
           </div>
 
           {/* Info */}
           <div>
-            <p className="font-semibold text-white text-sm">{device.deviceName}</p>
+            <p className="font-semibold text-slate-900 text-sm">{device.deviceName}</p>
             <p className="text-xs text-slate-500">{device.description || `Pin GPIO: ${device.pinGpio}`}</p>
             <div className="flex items-center gap-1.5 mt-1">
               <span className={clsx(
                 'w-1.5 h-1.5 rounded-full',
-                isPending ? 'bg-yellow-400 animate-ping' : isOn ? 'bg-green-400' : 'bg-slate-500'
+                isPending ? 'bg-amber-500' : isOn ? 'bg-emerald-500' : 'bg-slate-400'
               )} />
               <span className={clsx(
                 'text-xs font-medium',
-                isPending ? 'text-yellow-400' : isOn ? 'text-green-400' : 'text-slate-500'
+                isPending ? 'text-amber-600' : isOn ? 'text-emerald-600' : 'text-slate-500'
               )}>
                 {isPending ? 'Đang xử lý...' : isOn ? 'Đang bật' : 'Đã tắt'}
               </span>
@@ -226,28 +200,29 @@ function DeviceSwitch({ device, onToggle, index }: DeviceSwitchProps) {
           onClick={handleToggle}
           disabled={isPending}
           className={clsx(
-            'relative w-14 h-7 rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:cursor-not-allowed',
-            isPending ? 'bg-yellow-500/50 focus:ring-yellow-500' :
-            isOn ? 'bg-blue-600 focus:ring-blue-500' : 'bg-slate-600 focus:ring-slate-500'
+            'relative w-14 h-7 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed cursor-pointer',
+            isPending ? 'bg-amber-300 focus:ring-amber-400' :
+            isOn ? 'bg-blue-600 focus:ring-blue-500' : 'bg-slate-200 focus:ring-slate-400'
           )}
         >
-          <motion.div
-            className="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow-md flex items-center justify-center"
-            animate={{ x: isOn ? 28 : 0 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          <div
+            className={clsx(
+              'absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md flex items-center justify-center',
+              isOn ? 'left-7' : 'left-0.5'
+            )}
           >
-            <Power className={clsx('w-3 h-3', isOn ? 'text-blue-600' : 'text-slate-500')} />
-          </motion.div>
+            <Power className={clsx('w-3 h-3', isOn ? 'text-blue-600' : 'text-slate-400')} />
+          </div>
         </button>
       </div>
 
       {/* Last active */}
       {device.lastActiveAt && (
-        <p className="text-[10px] text-slate-500 mt-3">
+        <p className="text-[10px] text-slate-400 mt-3">
           Hoạt động lần cuối: {new Date(device.lastActiveAt).toLocaleString('vi-VN')}
         </p>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -255,14 +230,14 @@ function DeviceSwitch({ device, onToggle, index }: DeviceSwitchProps) {
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
-      <div className="glass-card p-3 text-xs shadow-xl border border-slate-600/50">
-        <p className="text-slate-400 mb-2 font-medium">
+      <div className="bg-white p-3 text-xs shadow-xl border border-slate-200 rounded-xl">
+        <p className="text-slate-500 mb-2 font-medium">
           {label ? new Date(label).toLocaleTimeString('vi-VN') : ''}
         </p>
         {payload.map((entry: any) => (
           <div key={entry.dataKey} className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
-            <span className="text-slate-300 capitalize">{entry.name}:</span>
+            <span className="text-slate-600 capitalize">{entry.name}:</span>
             <span className="font-bold" style={{ color: entry.color }}>
               {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
             </span>
@@ -281,7 +256,6 @@ export default function DashboardPage() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [isConnected, setIsConnected] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedChart, setSelectedChart] = useState<'all' | 'temperature' | 'humidity' | 'light'>('all');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const sensorsRef = useRef(sensors);
@@ -412,48 +386,51 @@ export default function DashboardPage() {
 
   const sensorCards = [
     {
-      icon: <Thermometer className="w-5 h-5 text-orange-400" />,
+      icon: <Thermometer className="w-5 h-5 text-orange-600" />,
       label: 'Nhiệt độ',
       value: sensors.temperature.value,
       unit: sensors.temperature.unit,
       min: sensors.temperature.minThreshold ?? 0,
       max: sensors.temperature.maxThreshold ?? 100,
       color: 'bg-orange-500',
+      iconBg: 'bg-orange-50 text-orange-600 border-orange-200',
       glowClass: 'shadow-orange-500/20',
       trend: getTrend(sensors.temperature.value, prevChart?.temperature),
     },
     {
-      icon: <Droplets className="w-5 h-5 text-blue-400" />,
+      icon: <Droplets className="w-5 h-5 text-blue-600" />,
       label: 'Độ ẩm',
       value: sensors.humidity.value,
       unit: sensors.humidity.unit,
       min: sensors.humidity.minThreshold ?? 0,
       max: sensors.humidity.maxThreshold ?? 100,
       color: 'bg-blue-500',
+      iconBg: 'bg-blue-50 text-blue-600 border-blue-200',
       glowClass: 'shadow-blue-500/20',
       trend: getTrend(sensors.humidity.value, prevChart?.humidity),
     },
     {
-      icon: <Sun className="w-5 h-5 text-yellow-400" />,
+      icon: <Sun className="w-5 h-5 text-amber-600" />,
       label: 'Ánh sáng',
       value: sensors.light.value,
       unit: sensors.light.unit,
       min: sensors.light.minThreshold ?? 0,
       max: sensors.light.maxThreshold ?? 1000,
-      color: 'bg-yellow-500',
+      color: 'bg-amber-500',
+      iconBg: 'bg-amber-50 text-amber-600 border-amber-200',
       glowClass: 'shadow-yellow-500/20',
       trend: getTrend(sensors.light.value, prevChart?.light),
     },
   ];
 
   const chartLines = [
-    { key: 'temperature', name: 'Nhiệt độ (°C)', color: '#f97316', show: selectedChart === 'all' || selectedChart === 'temperature' },
-    { key: 'humidity', name: 'Độ ẩm (%)', color: '#3b82f6', show: selectedChart === 'all' || selectedChart === 'humidity' },
-    { key: 'light', name: 'Ánh sáng (lux)', color: '#eab308', show: selectedChart === 'all' || selectedChart === 'light' },
+    { key: 'temperature', name: 'Nhiệt độ (°C)', color: '#f97316' },
+    { key: 'humidity', name: 'Độ ẩm (%)', color: '#3b82f6' },
+    { key: 'light', name: 'Ánh sáng (lux)', color: '#eab308' },
   ];
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950">
+    <div className="flex h-screen overflow-hidden bg-white">
       <Sidebar isConnected={isConnected} />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
@@ -464,31 +441,12 @@ export default function DashboardPage() {
         />
 
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Disconnected Banner */}
-          <AnimatePresence>
-            {!isConnected && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400"
-              >
-                <WifiOff className="w-4 h-4 flex-shrink-0 animate-pulse" />
-                <span className="text-sm font-medium">Đã ngắt kết nối với thiết bị / luồng SSE. Đang thử kết nối lại...</span>
-              </motion.div>
-            )}
-            {errorMessage && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm"
-              >
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>{errorMessage}</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {errorMessage && (
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-600" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
 
           {/* Sensor Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -500,45 +458,21 @@ export default function DashboardPage() {
           {/* Chart + Devices */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             {/* Line Chart */}
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              className="xl:col-span-2 glass-card p-5"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div className="xl:col-span-2 glass-card p-5">
+              <div className="flex items-center justify-between gap-3 mb-5">
                 <div>
-                  <h3 className="font-semibold text-white">Biểu đồ thời gian thực</h3>
-                  <p className="text-xs text-slate-400">Cập nhật tự động qua luồng SSE từ thiết bị</p>
-                </div>
-                {/* Chart filter tabs */}
-                <div className="flex gap-1 p-1 rounded-lg bg-slate-800/80 border border-slate-700/50">
-                  {[
-                    { key: 'all', label: 'Tất cả' },
-                    { key: 'temperature', label: 'Nhiệt độ' },
-                    { key: 'humidity', label: 'Độ ẩm' },
-                    { key: 'light', label: 'Ánh sáng' },
-                  ].map((tab) => (
-                    <button
-                      key={tab.key}
-                      onClick={() => setSelectedChart(tab.key as typeof selectedChart)}
-                      className={clsx(
-                        'px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200',
-                        selectedChart === tab.key
-                          ? 'bg-blue-600 text-white shadow-sm'
-                          : 'text-slate-400 hover:text-slate-200'
-                      )}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-blue-600" />
+                    <h3 className="font-semibold text-slate-900">Biểu đồ thời gian thực</h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">Cập nhật tự động qua luồng SSE từ thiết bị</p>
                 </div>
               </div>
 
               {chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={260}>
+                <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis
                       dataKey="timestamp"
                       tickFormatter={(v) => {
@@ -549,7 +483,7 @@ export default function DashboardPage() {
                         }
                       }}
                       tick={{ fontSize: 10, fill: '#64748b' }}
-                      axisLine={{ stroke: '#1e293b' }}
+                      axisLine={{ stroke: '#e2e8f0' }}
                       tickLine={false}
                       interval="preserveStartEnd"
                     />
@@ -557,9 +491,9 @@ export default function DashboardPage() {
                     <Tooltip content={<CustomTooltip />} />
                     <Legend
                       wrapperStyle={{ fontSize: '11px', paddingTop: '12px' }}
-                      formatter={(value) => <span style={{ color: '#94a3b8' }}>{value}</span>}
+                      formatter={(value) => <span style={{ color: '#64748b' }}>{value}</span>}
                     />
-                    {chartLines.map((line) => line.show && (
+                    {chartLines.map((line) => (
                       <Line
                         key={line.key}
                         type="monotone"
@@ -569,31 +503,26 @@ export default function DashboardPage() {
                         strokeWidth={2}
                         dot={false}
                         activeDot={{ r: 4, strokeWidth: 0 }}
-                        animationDuration={300}
+                        isAnimationActive={false}
                       />
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-[260px] flex items-center justify-center text-slate-500 text-xs">
+                <div className="h-[320px] flex items-center justify-center text-slate-400 text-xs">
                   <div className="flex flex-col items-center gap-2">
-                    <Activity className="w-8 h-8 opacity-30 animate-pulse" />
+                    <Activity className="w-8 h-8 text-slate-300" />
                     <p>Đang chờ luồng dữ liệu cảm biến mới...</p>
                   </div>
                 </div>
               )}
-            </motion.div>
+            </div>
 
             {/* Device Controls */}
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-              className="flex flex-col gap-4"
-            >
-              <div>
-                <h3 className="font-semibold text-white mb-1">Điều khiển thiết bị</h3>
-                <p className="text-xs text-slate-400 mb-4">2-Phase Control với handshake MQTT</p>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-2">
+                <Power className="w-4 h-4 text-blue-600" />
+                <h3 className="font-semibold text-slate-900">Điều khiển thiết bị</h3>
               </div>
 
               {devices.map((device, i) => (
@@ -606,31 +535,33 @@ export default function DashboardPage() {
               ))}
 
               {devices.length === 0 && (
-                <div className="glass-card p-6 text-center text-slate-500 text-xs">
-                  Chưa có thiết bị nào được kết nối trong hệ thống
+                <div className="glass-card p-6 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
+                  <Cpu className="w-8 h-8 text-slate-300" />
+                  <p>Chưa có thiết bị nào được kết nối trong hệ thống</p>
                 </div>
               )}
 
               {/* Stats box */}
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.7 }}
-                className="glass-card p-4 space-y-2"
-              >
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Thống kê</h4>
+              <div className="glass-card p-4 space-y-2">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Thống kê</h4>
+                </div>
                 {[
-                  { label: 'Thiết bị đang bật', value: devices.filter((d) => d.currentStatus === 'ON').length, color: 'text-green-400' },
-                  { label: 'Thiết bị đã tắt', value: devices.filter((d) => d.currentStatus === 'OFF').length, color: 'text-slate-400' },
-                  { label: 'Đang xử lý', value: devices.filter((d) => d.currentStatus === 'PENDING').length, color: 'text-yellow-400' },
+                  { label: 'Thiết bị đang bật', value: devices.filter((d) => d.currentStatus === 'ON').length, color: 'text-emerald-600', icon: <Zap className="w-3.5 h-3.5 text-emerald-600" /> },
+                  { label: 'Thiết bị đã tắt', value: devices.filter((d) => d.currentStatus === 'OFF').length, color: 'text-slate-600', icon: <ZapOff className="w-3.5 h-3.5 text-slate-400" /> },
+                  { label: 'Đang xử lý', value: devices.filter((d) => d.currentStatus === 'PENDING').length, color: 'text-amber-600', icon: <RefreshCw className="w-3.5 h-3.5 text-amber-500" /> },
                 ].map((stat) => (
                   <div key={stat.label} className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500">{stat.label}</span>
+                    <div className="flex items-center gap-2">
+                      {stat.icon}
+                      <span className="text-xs text-slate-500">{stat.label}</span>
+                    </div>
                     <span className={clsx('text-sm font-bold', stat.color)}>{stat.value}</span>
                   </div>
                 ))}
-              </motion.div>
-            </motion.div>
+              </div>
+            </div>
           </div>
         </main>
       </div>
