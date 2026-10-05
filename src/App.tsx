@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { ToastProvider } from './context';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicRoute from './components/PublicRoute';
 import LoginPage from './pages/LoginPage';
@@ -9,7 +10,8 @@ import ProfilePage from './pages/ProfilePage';
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <ToastProvider>
+      <BrowserRouter>
       <Routes>
         {/* Public Routes: Chỉ dành cho khách, nếu đã đăng nhập sẽ tự động chuyển tới /dashboard */}
         <Route element={<PublicRoute />}>
@@ -29,5 +31,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
+  </ToastProvider>
   );
 }

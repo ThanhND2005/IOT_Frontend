@@ -34,13 +34,12 @@ export default function Header({ title, subtitle }: HeaderProps) {
 
           return (
             <div className="flex items-center gap-2">
-              <div className="relative">
+              <div>
                 <img
                   src={avatarUrl}
                   alt={fullName}
                   className="w-8 h-8 rounded-full border-2 border-blue-500/30 bg-slate-100"
                 />
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-white" />
               </div>
               <div className="hidden md:block">
                 <p className="text-xs font-semibold text-slate-900">{fullName}</p>

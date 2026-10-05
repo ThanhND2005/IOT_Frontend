@@ -13,6 +13,7 @@ import Header from '../components/Header';
 import Sidebar from '../components/Sidebar';
 import type { SensorReading, ChartDataPoint, Device } from '../types';
 import { sensorService, deviceService } from '../services';
+import { useToast } from '../context';
 
 // ─── Initial Fallback State ────────────────────────────────
 const initialSensors: SensorReading = {
@@ -106,9 +107,10 @@ interface DeviceSwitchProps {
   device: Device;
   onToggle: (id: string, action: 'ON' | 'OFF') => Promise<void>;
   index?: number;
+  disabled?: boolean;
 }
 
-function DeviceSwitch({ device, onToggle }: DeviceSwitchProps) {
+function DeviceSwitch({ device, onToggle, disabled }: DeviceSwitchProps) {
   const [localStatus, setLocalStatus] = useState<'ON' | 'OFF' | 'PENDING'>(device.currentStatus);
   const isOn = localStatus === 'ON';
   const isPending = localStatus === 'PENDING';
@@ -118,7 +120,7 @@ function DeviceSwitch({ device, onToggle }: DeviceSwitchProps) {
   }, [device.currentStatus]);
 
   const handleToggle = async () => {
-    if (isPending) return;
+    if (isPending || disabled) return;
     const newAction = isOn ? 'OFF' : 'ON';
     setLocalStatus('PENDING');
     try {
@@ -198,16 +200,17 @@ function DeviceSwitch({ device, onToggle }: DeviceSwitchProps) {
         {/* Toggle */}
         <button
           onClick={handleToggle}
-          disabled={isPending}
+          disabled={isPending || disabled}
           className={clsx(
-            'relative w-14 h-7 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed cursor-pointer',
+            'relative w-14 h-7 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed cursor-pointer transition-opacity',
             isPending ? 'bg-amber-300 focus:ring-amber-400' :
-            isOn ? 'bg-blue-600 focus:ring-blue-500' : 'bg-slate-200 focus:ring-slate-400'
+            isOn ? 'bg-blue-600 focus:ring-blue-500' : 'bg-slate-200 focus:ring-slate-400',
+            disabled && 'opacity-60 cursor-not-allowed'
           )}
         >
           <div
             className={clsx(
-              'absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md flex items-center justify-center',
+              'absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md flex items-center justify-center transition-all duration-200',
               isOn ? 'left-7' : 'left-0.5'
             )}
           >
@@ -251,6 +254,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 // ─── Dashboard Page ───────────────────────────────────────
 export default function DashboardPage() {
+  const toast = useToast();
   const [sensors, setSensors] = useState<SensorReading>(initialSensors);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -355,6 +359,10 @@ export default function DashboardPage() {
   }, [loadDashboardData]);
 
   const handleDeviceToggle = async (id: string, action: 'ON' | 'OFF') => {
+    const targetDev = devices.find((d) => d.id === id);
+    const devName = targetDev?.deviceName || 'Thiết bị';
+    const actionText = action === 'ON' ? 'bật' : 'tắt';
+
     try {
       const response = await deviceService.controlDevice(id, action);
       setDevices((prev) =>
@@ -368,11 +376,114 @@ export default function DashboardPage() {
             : d
         )
       );
+      toast.success(
+        `Thao tác thành công`,
+        `Đã ${actionText} thiết bị "${devName}" thành công.`
+      );
     } catch (err: any) {
       console.error('Device control failed:', err);
-      alert(err?.message || 'Không thể điều khiển thiết bị (Timeout hoặc lỗi máy chủ)');
+      toast.error(
+        `Thao tác thất bại`,
+        err?.message || `Không thể ${actionText} thiết bị "${devName}" (Timeout hoặc lỗi máy chủ).`
+      );
       throw err;
     }
+  };
+
+  const [isBatchControlling, setIsBatchControlling] = useState(false);
+
+  const handleBulkControl = async (action: 'ON' | 'OFF') => {
+    if (isBatchControlling || devices.length === 0) return;
+
+    setIsBatchControlling(true);
+    const actionText = action === 'ON' ? 'bật' : 'tắt';
+
+    try {
+      // Ưu tiên các thiết bị chưa ở trạng thái mong muốn; nếu tất cả đã ở trạng thái đó thì gửi lại toàn bộ để đồng bộ
+      const targetDevices = devices.filter((d) => d.currentStatus !== action);
+      const devicesToControl = targetDevices.length > 0 ? targetDevices : devices;
+
+      // Đặt trạng thái PENDING hiển thị ngay trên UI
+      setDevices((prev) =>
+        prev.map((d) =>
+          devicesToControl.some((td) => td.id === d.id)
+            ? { ...d, currentStatus: 'PENDING' }
+            : d
+        )
+      );
+
+      const errors: string[] = [];
+
+      // Gửi lệnh điều khiển tuần tự có khoảng trễ nhỏ (100ms) để ESP8266 & MQTT Broker xử lý ổn định
+      const results = await Promise.allSettled(
+        devicesToControl.map(async (dev, index) => {
+          if (index > 0) {
+            await new Promise((resolve) => setTimeout(resolve, index * 100));
+          }
+          const response = await deviceService.controlDevice(dev.id, action);
+          setDevices((prev) =>
+            prev.map((d) =>
+              d.id === dev.id
+                ? {
+                    ...d,
+                    currentStatus: action,
+                    lastActiveAt: response.confirmedAt || new Date().toISOString(),
+                  }
+                : d
+            )
+          );
+          return dev;
+        })
+      );
+
+      results.forEach((res, index) => {
+        if (res.status === 'rejected') {
+          const dev = devicesToControl[index];
+          errors.push(dev.deviceName || dev.id);
+          // Revert trạng thái nếu có lỗi
+          setDevices((prev) =>
+            prev.map((d) =>
+              d.id === dev.id ? { ...d, currentStatus: dev.currentStatus } : d
+            )
+          );
+        }
+      });
+
+      if (errors.length > 0) {
+        if (errors.length === devicesToControl.length) {
+          toast.error(
+            `Thao tác thất bại`,
+            `Không thể ${actionText} các thiết bị (${errors.join(', ')}). Vui lòng kiểm tra lại kết nối thiết bị.`
+          );
+        } else {
+          toast.warning(
+            `Hoàn tất một phần`,
+            `Không thể ${actionText} một số thiết bị (${errors.join(', ')}). Các thiết bị khác đã ${actionText} thành công.`
+          );
+        }
+      } else {
+        toast.success(
+          `Thao tác thành công`,
+          `Đã ${actionText} tất cả thiết bị thành công.`
+        );
+      }
+    } catch (err: any) {
+      console.error('Bulk device control failed:', err);
+      toast.error(
+        `Thao tác thất bại`,
+        err?.message || `Có lỗi xảy ra khi thực hiện ${actionText} thiết bị hàng loạt.`
+      );
+    } finally {
+      setIsBatchControlling(false);
+    }
+  };
+
+  const isAllOn = devices.length > 0 && devices.every((d) => d.currentStatus === 'ON');
+
+  const handleMasterToggle = async () => {
+    if (isBatchControlling || devices.length === 0) return;
+    const nextAction = isAllOn ? 'OFF' : 'ON';
+    await handleBulkControl(nextAction);
   };
 
   const getTrend = (current: number, prev?: number): 'up' | 'down' | 'stable' => {
@@ -520,9 +631,48 @@ export default function DashboardPage() {
 
             {/* Device Controls */}
             <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-2">
-                <Power className="w-4 h-4 text-blue-600" />
-                <h3 className="font-semibold text-slate-900">Điều khiển thiết bị</h3>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Power className="w-4 h-4 text-blue-600" />
+                  <h3 className="font-semibold text-slate-900">Điều khiển thiết bị</h3>
+                </div>
+
+                {/* Master Toggle Switch - Cái gạt Bật tất cả */}
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xs font-semibold text-slate-700">
+                    Bật tất cả
+                  </span>
+                  <button
+                    onClick={handleMasterToggle}
+                    disabled={isBatchControlling || devices.length === 0}
+                    className={clsx(
+                      'relative w-14 h-7 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed cursor-pointer transition-colors',
+                      isBatchControlling ? 'bg-amber-300 focus:ring-amber-400' :
+                      isAllOn ? 'bg-blue-600 focus:ring-blue-500' : 'bg-slate-200 focus:ring-slate-400',
+                      (isBatchControlling || devices.length === 0) && 'opacity-60 cursor-not-allowed'
+                    )}
+                    title={
+                      devices.length === 0
+                        ? 'Chưa có thiết bị kết nối'
+                        : isAllOn
+                        ? 'Gạt để tắt tất cả thiết bị'
+                        : 'Gạt để bật tất cả thiết bị'
+                    }
+                  >
+                    <div
+                      className={clsx(
+                        'absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md flex items-center justify-center transition-all duration-200',
+                        isAllOn ? 'left-7' : 'left-0.5'
+                      )}
+                    >
+                      {isBatchControlling ? (
+                        <RefreshCw className="w-3 h-3 text-amber-600 animate-spin" />
+                      ) : (
+                        <Power className={clsx('w-3 h-3', isAllOn ? 'text-blue-600' : 'text-slate-400')} />
+                      )}
+                    </div>
+                  </button>
+                </div>
               </div>
 
               {devices.map((device, i) => (
@@ -530,6 +680,7 @@ export default function DashboardPage() {
                   key={device.id}
                   device={device}
                   onToggle={handleDeviceToggle}
+                  disabled={isBatchControlling}
                   index={i}
                 />
               ))}

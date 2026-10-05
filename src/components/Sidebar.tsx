@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Database,
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import clsx from 'clsx';
+import { authService } from '../services';
 
 interface SidebarProps {
   isConnected?: boolean;
@@ -22,15 +23,10 @@ const navItems = [
 ];
 
 export default function Sidebar(_props: SidebarProps = {}) {
-  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user_info');
-    localStorage.setItem('manual_logout', 'true');
-    navigate('/login');
+    authService.logout();
   };
 
   return (
