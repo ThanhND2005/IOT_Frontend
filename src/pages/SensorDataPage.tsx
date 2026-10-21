@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Search, Filter, ChevronLeft, ChevronRight, ChevronDown,
   Thermometer, Droplets, Sun, SlidersHorizontal, RefreshCw,
-  Database, RotateCcw, X, Calendar, ArrowUpDown, Hash
+  Database, RotateCcw, X, Calendar, ArrowUpDown, Hash,
+  Copy, Check
 } from 'lucide-react';
 import clsx from 'clsx';
 import Header from '../components/Header';
@@ -37,29 +38,64 @@ const SENSOR_TYPE_CONFIG = {
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
+function formatDateTime(dateInput: string | number | Date): string {
+  try {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return String(dateInput);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
+  } catch {
+    return String(dateInput);
+  }
+}
+
 // Normalize user-entered date/time to ISO-compatible format for database query
+// Ưu tiên: Năm -> Tháng -> Ngày -> Giờ -> Phút -> Giây
 function normalizeSearchTime(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return '';
 
-  // Case 1: "HH:mm DD/MM/YYYY" or "HH:mm:ss DD/MM/YYYY"
-  const timeFirstMatch = trimmed.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s+(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  if (timeFirstMatch) {
-    const time = timeFirstMatch[1];
-    const day = timeFirstMatch[2].padStart(2, '0');
-    const month = timeFirstMatch[3].padStart(2, '0');
-    const year = timeFirstMatch[4];
-    return `${year}-${month}-${day} ${time}`;
-  }
-
-  // Case 2: "DD/MM/YYYY" or "DD/MM/YYYY HH:mm"
+  // Case 0: Format dạng Ngày trước "DD/MM/YYYY" hoặc "DD/MM/YYYY HH:mm:ss"
   const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(.*)$/);
   if (ddmmyyyyMatch) {
     const day = ddmmyyyyMatch[1].padStart(2, '0');
     const month = ddmmyyyyMatch[2].padStart(2, '0');
     const year = ddmmyyyyMatch[3];
     const rest = ddmmyyyyMatch[4] ? ddmmyyyyMatch[4].trim() : '';
-    return rest ? `${year}-${month}-${day} ${rest}` : `${year}-${month}-${day}`;
+    return rest ? `${year}/${month}/${day} ${rest}` : `${year}/${month}/${day}`;
+  }
+
+  // Case 1: Format Giờ trước "HH:mm DD/MM/YYYY" hoặc "HH:mm:ss DD/MM/YYYY"
+  const timeFirstMatch = trimmed.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s+(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (timeFirstMatch) {
+    const time = timeFirstMatch[1];
+    const day = timeFirstMatch[2].padStart(2, '0');
+    const month = timeFirstMatch[3].padStart(2, '0');
+    const year = timeFirstMatch[4];
+    return `${year}/${month}/${day} ${time}`;
+  }
+
+  // Case 2: Format Năm trước "YYYY/MM/DD..." hoặc "YYYY-MM-DD..."
+  const yyyymmddMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})(.*)$/);
+  if (yyyymmddMatch) {
+    const year = yyyymmddMatch[1];
+    const month = yyyymmddMatch[2].padStart(2, '0');
+    const day = yyyymmddMatch[3].padStart(2, '0');
+    const rest = yyyymmddMatch[4] ? yyyymmddMatch[4].trim() : '';
+    return rest ? `${year}/${month}/${day} ${rest}` : `${year}/${month}/${day}`;
+  }
+
+  // Case 3: Format Năm/Tháng "YYYY/MM" hoặc "YYYY-MM"
+  const yyyymmMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})$/);
+  if (yyyymmMatch) {
+    const year = yyyymmMatch[1];
+    const month = yyyymmMatch[2].padStart(2, '0');
+    return `${year}/${month}`;
   }
 
   return trimmed;
@@ -154,6 +190,15 @@ export default function SensorDataPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [showFilter, setShowFilter] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyTime = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => {
+      setCopiedId((prev) => (prev === id ? null : prev));
+    }, 1500);
+  };
 
   // Fetch sensor logs from backend API
   const fetchLogs = useCallback(
@@ -252,13 +297,6 @@ export default function SensorDataPage() {
     fetchLogs(1, pageSize, 'ALL', 'DESC', '', '');
   };
 
-  // Active filter count
-  const activeFilterCount = [
-    selectedType !== 'ALL',
-    appliedSearchTime !== '',
-    appliedSearchValue !== '',
-    sortOrder !== 'DESC',
-  ].filter(Boolean).length;
 
   return (
     <div className="flex h-screen overflow-hidden bg-white">
@@ -282,11 +320,6 @@ export default function SensorDataPage() {
               <div className="flex items-center gap-2.5">
                 <Filter className="w-4 h-4 text-blue-600" />
                 <span>Bộ lọc tìm kiếm dữ liệu cảm biến</span>
-                {activeFilterCount > 0 && (
-                  <span className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full font-medium">
-                    {activeFilterCount} bộ lọc đang áp dụng
-                  </span>
-                )}
               </div>
               <ChevronDown className={clsx('w-4 h-4 text-slate-400 transition-transform', showFilter && 'rotate-180')} />
             </button>
@@ -337,14 +370,9 @@ export default function SensorDataPage() {
 
                     {/* 3. Ô điền tìm kiếm theo thời gian */}
                     <div>
-                      <label className="text-xs text-slate-600 mb-1 flex items-center justify-between font-medium">
-                        <span className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-blue-600" />
-                          Thời điểm đo
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-normal">
-                          VD: 2026-09-02, 14:30
-                        </span>
+                      <label className="text-xs text-slate-600 mb-1 flex items-center gap-1.5 font-medium">
+                        <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                        Thời điểm đo
                       </label>
                       <div className="relative flex items-center">
                         <Search className="absolute left-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
@@ -353,7 +381,7 @@ export default function SensorDataPage() {
                           value={searchTime}
                           onChange={(e) => setSearchTime(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                          placeholder="Nhập ngày, giờ (2026-09-02, 14:30...)"
+                          placeholder="--:--:--"
                           className="w-full pl-9 pr-16 py-1.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                         />
                         <div className="absolute right-2.5 flex items-center gap-1">
@@ -402,14 +430,9 @@ export default function SensorDataPage() {
 
                     {/* 4. Ô điền tìm kiếm theo giá trị */}
                     <div>
-                      <label className="text-xs text-slate-600 mb-1 flex items-center justify-between font-medium">
-                        <span className="flex items-center gap-1.5">
-                          <Hash className="w-3.5 h-3.5 text-emerald-600" />
-                          Giá trị cảm biến
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-normal">
-                          VD: 28.5 hoặc &gt;30
-                        </span>
+                      <label className="text-xs text-slate-600 mb-1 flex items-center gap-1.5 font-medium">
+                        <Hash className="w-3.5 h-3.5 text-emerald-600" />
+                        Giá trị cảm biến
                       </label>
                       <div className="relative flex items-center">
                         <Search className="absolute left-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
@@ -418,7 +441,7 @@ export default function SensorDataPage() {
                           value={searchValue}
                           onChange={(e) => setSearchValue(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                          placeholder="Nhập giá trị (28, 65, >30...)"
+                          placeholder="Nhập giá trị"
                           className="w-full pl-9 pr-8 py-1.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                         />
                         {searchValue && (
@@ -522,7 +545,32 @@ export default function SensorDataPage() {
                         </td>
                         <td className="px-4 py-2.5 text-slate-500 border-b border-slate-100 whitespace-nowrap">{log.unit}</td>
                         <td className="px-4 py-2.5 text-xs text-slate-500 border-b border-slate-100 whitespace-nowrap">
-                          {new Date(log.recordedAt).toLocaleString('vi-VN')}
+                          {(() => {
+                            const formattedTime = formatDateTime(log.recordedAt);
+                            const isCopied = copiedId === log.id;
+                            return (
+                              <div className="flex items-center gap-1.5">
+                                <span>{formattedTime}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyTime(log.id, formattedTime)}
+                                  className={clsx(
+                                    'p-1 rounded transition-colors cursor-pointer',
+                                    isCopied
+                                      ? 'text-emerald-600 bg-emerald-50'
+                                      : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                                  )}
+                                  title={isCopied ? 'Đã sao chép' : 'Sao chép thời điểm'}
+                                >
+                                  {isCopied ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))

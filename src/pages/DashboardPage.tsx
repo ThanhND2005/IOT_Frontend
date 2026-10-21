@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Thermometer, Droplets, Sun, Zap, ZapOff, Activity,
-  TrendingUp, TrendingDown, AlertTriangle, RefreshCw,
-  Power, Lightbulb, Fan, Cpu, SlidersHorizontal
+  AlertTriangle, RefreshCw, Power, Lightbulb, Fan, Cpu
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -51,14 +50,11 @@ interface SensorCardProps {
   unit: string;
   min: number;
   max: number;
-  color: string;
   iconBg: string;
-  glowClass: string;
   index?: number;
-  trend: 'up' | 'down' | 'stable';
 }
 
-function SensorCard({ icon, label, value, unit, min, max, color, iconBg, glowClass, trend }: SensorCardProps) {
+function SensorCard({ icon, label, value, unit, min, max, iconBg }: SensorCardProps) {
   const isAlert = max > min && (value >= max * 0.9 || (min > 0 && value <= min * 1.1));
 
   return (
@@ -68,9 +64,6 @@ function SensorCard({ icon, label, value, unit, min, max, color, iconBg, glowCla
         isAlert && 'border-orange-500/50'
       )}
     >
-      {/* Background glow */}
-      <div className={`absolute -top-4 -right-4 w-24 h-24 rounded-full opacity-10 blur-2xl ${color}`} />
-
       {/* Alert badge */}
       {isAlert && (
         <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 text-xs border border-orange-200">
@@ -81,13 +74,8 @@ function SensorCard({ icon, label, value, unit, min, max, color, iconBg, glowCla
 
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
-        <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center border', iconBg, glowClass)}>
+        <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center border', iconBg)}>
           {icon}
-        </div>
-        <div className="flex items-center gap-1 text-xs">
-          {trend === 'up' && <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />}
-          {trend === 'down' && <TrendingDown className="w-3.5 h-3.5 text-rose-600" />}
-          {trend === 'stable' && <Activity className="w-3.5 h-3.5 text-slate-400" />}
         </div>
       </div>
 
@@ -218,13 +206,6 @@ function DeviceSwitch({ device, onToggle, disabled }: DeviceSwitchProps) {
           </div>
         </button>
       </div>
-
-      {/* Last active */}
-      {device.lastActiveAt && (
-        <p className="text-[10px] text-slate-400 mt-3">
-          Hoạt động lần cuối: {new Date(device.lastActiveAt).toLocaleString('vi-VN')}
-        </p>
-      )}
     </div>
   );
 }
@@ -232,20 +213,46 @@ function DeviceSwitch({ device, onToggle, disabled }: DeviceSwitchProps) {
 // ─── Custom Tooltip ───────────────────────────────────────
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
+    const formatFullTime = (timeInput: any) => {
+      try {
+        const d = new Date(timeInput);
+        if (isNaN(d.getTime())) return String(timeInput);
+        const h = String(d.getHours()).padStart(2, '0');
+        const m = String(d.getMinutes()).padStart(2, '0');
+        const s = String(d.getSeconds()).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `${h}:${m}:${s} - ${day}/${month}/${year}`;
+      } catch {
+        return String(timeInput);
+      }
+    };
+
     return (
-      <div className="bg-white p-3 text-xs shadow-xl border border-slate-200 rounded-xl">
-        <p className="text-slate-500 mb-2 font-medium">
-          {label ? new Date(label).toLocaleTimeString('vi-VN') : ''}
+      <div className="bg-white p-3 text-xs shadow-xl border border-slate-200 rounded-xl min-w-[210px]">
+        <p className="text-slate-500 mb-2 font-medium border-b border-slate-100 pb-1.5">
+          {label ? formatFullTime(label) : ''}
         </p>
-        {payload.map((entry: any) => (
-          <div key={entry.dataKey} className="flex items-center gap-2 mb-1">
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
-            <span className="text-slate-600 capitalize">{entry.name}:</span>
-            <span className="font-bold" style={{ color: entry.color }}>
-              {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
-            </span>
-          </div>
-        ))}
+        {payload.map((entry: any) => {
+          const unit =
+            entry.dataKey === 'temperature'
+              ? '°C'
+              : entry.dataKey === 'humidity'
+              ? '%'
+              : 'lux';
+          return (
+            <div key={entry.dataKey} className="flex items-center justify-between gap-3 mb-1">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                <span className="text-slate-600 capitalize">{entry.name}:</span>
+              </div>
+              <span className="font-bold tabular-nums" style={{ color: entry.color }}>
+                {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value} {unit}
+              </span>
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -278,7 +285,39 @@ export default function DashboardPage() {
       ]);
 
       setSensors(latestSnap);
-      setChartData(history);
+
+      // Chuẩn hóa danh sách lịch sử ban đầu: lọc mốc thời gian hợp lệ, sort tăng dần, loại bỏ trùng lặp mốc giây
+      const validHistory = (history || [])
+        .filter((item) => item && item.timestamp && !isNaN(new Date(item.timestamp).getTime()))
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      const sanitizedHistory: ChartDataPoint[] = [];
+      const seenSeconds = new Set<number>();
+
+      for (const item of validHistory) {
+        const timeMs = new Date(item.timestamp).getTime();
+        const secondBucket = Math.floor(timeMs / 1000);
+        if (!seenSeconds.has(secondBucket)) {
+          seenSeconds.add(secondBucket);
+          sanitizedHistory.push({
+            ...item,
+            timestamp: new Date(timeMs).toISOString(),
+          });
+        }
+      }
+
+      setChartData((prev) => {
+        // Nếu trong thời gian tải dữ liệu, luồng realtime đã nhận được các điểm mới hơn thì giữ lại
+        if (prev.length > 0 && sanitizedHistory.length > 0) {
+          const lastHistoryTime = new Date(sanitizedHistory[sanitizedHistory.length - 1].timestamp).getTime();
+          const newerRealtimePoints = prev.filter(
+            (p) => new Date(p.timestamp).getTime() > lastHistoryTime
+          );
+          return [...sanitizedHistory, ...newerRealtimePoints].slice(-30);
+        }
+        return (sanitizedHistory.length > 0 ? sanitizedHistory : prev).slice(-30);
+      });
+
       setDevices(deviceList);
     } catch (err: any) {
       console.error('Error loading dashboard data:', err);
@@ -295,48 +334,90 @@ export default function DashboardPage() {
     const cleanup = sensorService.createSensorStream(
       (streamData) => {
         setIsConnected(true);
-        const nowIso = streamData.timestamp || new Date().toISOString();
 
-        setSensors((prev) => {
-          const updated: SensorReading = {
-            temperature: {
-              ...prev.temperature,
-              value: streamData.temperature?.value !== undefined ? Number(streamData.temperature.value) : prev.temperature.value,
-              unit: streamData.temperature?.unit || prev.temperature.unit,
-              recordedAt: nowIso,
-            },
-            humidity: {
-              ...prev.humidity,
-              value: streamData.humidity?.value !== undefined ? Number(streamData.humidity.value) : prev.humidity.value,
-              unit: streamData.humidity?.unit || prev.humidity.unit,
-              recordedAt: nowIso,
-            },
-            light: {
-              ...prev.light,
-              value: streamData.light?.value !== undefined ? Number(streamData.light.value) : prev.light.value,
-              unit: streamData.light?.unit || prev.light.unit,
-              recordedAt: nowIso,
-            },
-          };
-          return updated;
-        });
+        // Bỏ qua các bản tin không chứa dữ liệu cảm biến đo lường (như INIT_STREAM, ping...)
+        const hasTemp = streamData.temperature?.value !== undefined;
+        const hasHum = streamData.humidity?.value !== undefined;
+        const hasLight = streamData.light?.value !== undefined;
 
-        // Update chart data point
+        if (!hasTemp && !hasHum && !hasLight) {
+          return;
+        }
+
+        // Parse thời gian nhận được từ backend hoặc lấy thời gian hiện tại
+        let pointTimeMs: number;
+        if (streamData.timestamp) {
+          const parsed = new Date(streamData.timestamp).getTime();
+          pointTimeMs = !isNaN(parsed) ? parsed : Date.now();
+        } else {
+          pointTimeMs = Date.now();
+        }
+
+        const pointIso = new Date(pointTimeMs).toISOString();
+
+        setSensors((prev) => ({
+          temperature: {
+            ...prev.temperature,
+            value: hasTemp ? Number(streamData.temperature!.value) : prev.temperature.value,
+            unit: streamData.temperature?.unit || prev.temperature.unit,
+            recordedAt: pointIso,
+          },
+          humidity: {
+            ...prev.humidity,
+            value: hasHum ? Number(streamData.humidity!.value) : prev.humidity.value,
+            unit: streamData.humidity?.unit || prev.humidity.unit,
+            recordedAt: pointIso,
+          },
+          light: {
+            ...prev.light,
+            value: hasLight ? Number(streamData.light!.value) : prev.light.value,
+            unit: streamData.light?.unit || prev.light.unit,
+            recordedAt: pointIso,
+          },
+        }));
+
+        // Cập nhật biểu đồ theo quy tắc thời gian thực tiến dần (Monotonic Real-time Append)
         setChartData((prev) => {
           const currentLatest = sensorsRef.current;
           const newPoint: ChartDataPoint = {
-            timestamp: nowIso,
-            temperature: streamData.temperature?.value !== undefined
-              ? Number(streamData.temperature.value)
+            timestamp: pointIso,
+            temperature: hasTemp
+              ? Number(streamData.temperature!.value)
               : currentLatest.temperature.value,
-            humidity: streamData.humidity?.value !== undefined
-              ? Number(streamData.humidity.value)
+            humidity: hasHum
+              ? Number(streamData.humidity!.value)
               : currentLatest.humidity.value,
-            light: streamData.light?.value !== undefined
-              ? Number(streamData.light.value)
+            light: hasLight
+              ? Number(streamData.light!.value)
               : currentLatest.light.value,
           };
-          return [...prev.slice(-29), newPoint];
+
+          if (prev.length === 0) {
+            return [newPoint];
+          }
+
+          const lastIndex = prev.length - 1;
+          const lastPoint = prev[lastIndex];
+          const lastPointTime = new Date(lastPoint.timestamp).getTime();
+
+          // 1. Trường hợp thời gian điểm mới <= thời gian điểm cuối
+          if (pointTimeMs <= lastPointTime) {
+            // Nếu cùng mốc thời gian hoặc chênh lệch nhỏ (< 1.5s): cùng chu kỳ -> cập nhật điểm cuối
+            if (lastPointTime - pointTimeMs < 1500) {
+              const updated = [...prev];
+              updated[lastIndex] = {
+                ...lastPoint,
+                ...newPoint,
+                timestamp: lastPoint.timestamp, // giữ nguyên mốc thời gian của điểm cuối
+              };
+              return updated;
+            }
+            // Nếu điểm mới cũ hơn (> 1.5s): đây là gói tin đến trễ/lạc thứ tự -> bỏ qua để không làm giật lùi biểu đồ
+            return prev;
+          }
+
+          // 2. Điểm mới tiến về phía trước theo đúng thứ tự thời gian -> Append vào cuối
+          return [...prev, newPoint].slice(-30);
         });
       },
       () => {
@@ -359,10 +440,6 @@ export default function DashboardPage() {
   }, [loadDashboardData]);
 
   const handleDeviceToggle = async (id: string, action: 'ON' | 'OFF') => {
-    const targetDev = devices.find((d) => d.id === id);
-    const devName = targetDev?.deviceName || 'Thiết bị';
-    const actionText = action === 'ON' ? 'bật' : 'tắt';
-
     try {
       const response = await deviceService.controlDevice(id, action);
       setDevices((prev) =>
@@ -376,16 +453,10 @@ export default function DashboardPage() {
             : d
         )
       );
-      toast.success(
-        `Thao tác thành công`,
-        `Đã ${actionText} thiết bị "${devName}" thành công.`
-      );
+      toast.success('Thao tác thành công');
     } catch (err: any) {
       console.error('Device control failed:', err);
-      toast.error(
-        `Thao tác thất bại`,
-        err?.message || `Không thể ${actionText} thiết bị "${devName}" (Timeout hoặc lỗi máy chủ).`
-      );
+      toast.error('Thao tác thất bại');
       throw err;
     }
   };
@@ -396,83 +467,33 @@ export default function DashboardPage() {
     if (isBatchControlling || devices.length === 0) return;
 
     setIsBatchControlling(true);
-    const actionText = action === 'ON' ? 'bật' : 'tắt';
+    const prevDevices = [...devices];
+
+    // Đặt trạng thái PENDING cho tất cả thiết bị hiển thị ngay trên UI
+    setDevices((prev) =>
+      prev.map((d) => ({ ...d, currentStatus: 'PENDING' }))
+    );
 
     try {
-      // Ưu tiên các thiết bị chưa ở trạng thái mong muốn; nếu tất cả đã ở trạng thái đó thì gửi lại toàn bộ để đồng bộ
-      const targetDevices = devices.filter((d) => d.currentStatus !== action);
-      const devicesToControl = targetDevices.length > 0 ? targetDevices : devices;
+      const responses = await deviceService.controlAllDevices(action);
+      const nowIso = new Date().toISOString();
 
-      // Đặt trạng thái PENDING hiển thị ngay trên UI
       setDevices((prev) =>
-        prev.map((d) =>
-          devicesToControl.some((td) => td.id === d.id)
-            ? { ...d, currentStatus: 'PENDING' }
-            : d
-        )
-      );
-
-      const errors: string[] = [];
-
-      // Gửi lệnh điều khiển tuần tự có khoảng trễ nhỏ (100ms) để ESP8266 & MQTT Broker xử lý ổn định
-      const results = await Promise.allSettled(
-        devicesToControl.map(async (dev, index) => {
-          if (index > 0) {
-            await new Promise((resolve) => setTimeout(resolve, index * 100));
-          }
-          const response = await deviceService.controlDevice(dev.id, action);
-          setDevices((prev) =>
-            prev.map((d) =>
-              d.id === dev.id
-                ? {
-                    ...d,
-                    currentStatus: action,
-                    lastActiveAt: response.confirmedAt || new Date().toISOString(),
-                  }
-                : d
-            )
-          );
-          return dev;
+        prev.map((d) => {
+          const matched = responses.find((r) => r.deviceId === d.id);
+          return {
+            ...d,
+            currentStatus: action,
+            lastActiveAt: matched?.confirmedAt || nowIso,
+          };
         })
       );
-
-      results.forEach((res, index) => {
-        if (res.status === 'rejected') {
-          const dev = devicesToControl[index];
-          errors.push(dev.deviceName || dev.id);
-          // Revert trạng thái nếu có lỗi
-          setDevices((prev) =>
-            prev.map((d) =>
-              d.id === dev.id ? { ...d, currentStatus: dev.currentStatus } : d
-            )
-          );
-        }
-      });
-
-      if (errors.length > 0) {
-        if (errors.length === devicesToControl.length) {
-          toast.error(
-            `Thao tác thất bại`,
-            `Không thể ${actionText} các thiết bị (${errors.join(', ')}). Vui lòng kiểm tra lại kết nối thiết bị.`
-          );
-        } else {
-          toast.warning(
-            `Hoàn tất một phần`,
-            `Không thể ${actionText} một số thiết bị (${errors.join(', ')}). Các thiết bị khác đã ${actionText} thành công.`
-          );
-        }
-      } else {
-        toast.success(
-          `Thao tác thành công`,
-          `Đã ${actionText} tất cả thiết bị thành công.`
-        );
-      }
+      toast.success(action === 'ON' ? 'Đã bật tất cả thiết bị thành công' : 'Đã tắt tất cả thiết bị thành công');
     } catch (err: any) {
       console.error('Bulk device control failed:', err);
-      toast.error(
-        `Thao tác thất bại`,
-        err?.message || `Có lỗi xảy ra khi thực hiện ${actionText} thiết bị hàng loạt.`
-      );
+      // Revert lại trạng thái cũ
+      setDevices(prevDevices);
+      toast.error('Điều khiển tất cả thiết bị thất bại');
     } finally {
       setIsBatchControlling(false);
     }
@@ -486,15 +507,6 @@ export default function DashboardPage() {
     await handleBulkControl(nextAction);
   };
 
-  const getTrend = (current: number, prev?: number): 'up' | 'down' | 'stable' => {
-    if (prev === undefined) return 'stable';
-    const diff = current - prev;
-    if (Math.abs(diff) < 0.2) return 'stable';
-    return diff > 0 ? 'up' : 'down';
-  };
-
-  const prevChart = chartData.length > 1 ? chartData[chartData.length - 2] : undefined;
-
   const sensorCards = [
     {
       icon: <Thermometer className="w-5 h-5 text-orange-600" />,
@@ -503,10 +515,7 @@ export default function DashboardPage() {
       unit: sensors.temperature.unit,
       min: sensors.temperature.minThreshold ?? 0,
       max: sensors.temperature.maxThreshold ?? 100,
-      color: 'bg-orange-500',
       iconBg: 'bg-orange-50 text-orange-600 border-orange-200',
-      glowClass: 'shadow-orange-500/20',
-      trend: getTrend(sensors.temperature.value, prevChart?.temperature),
     },
     {
       icon: <Droplets className="w-5 h-5 text-blue-600" />,
@@ -515,10 +524,7 @@ export default function DashboardPage() {
       unit: sensors.humidity.unit,
       min: sensors.humidity.minThreshold ?? 0,
       max: sensors.humidity.maxThreshold ?? 100,
-      color: 'bg-blue-500',
       iconBg: 'bg-blue-50 text-blue-600 border-blue-200',
-      glowClass: 'shadow-blue-500/20',
-      trend: getTrend(sensors.humidity.value, prevChart?.humidity),
     },
     {
       icon: <Sun className="w-5 h-5 text-amber-600" />,
@@ -527,17 +533,14 @@ export default function DashboardPage() {
       unit: sensors.light.unit,
       min: sensors.light.minThreshold ?? 0,
       max: sensors.light.maxThreshold ?? 1000,
-      color: 'bg-amber-500',
       iconBg: 'bg-amber-50 text-amber-600 border-amber-200',
-      glowClass: 'shadow-yellow-500/20',
-      trend: getTrend(sensors.light.value, prevChart?.light),
     },
   ];
 
   const chartLines = [
-    { key: 'temperature', name: 'Nhiệt độ (°C)', color: '#f97316' },
-    { key: 'humidity', name: 'Độ ẩm (%)', color: '#3b82f6' },
-    { key: 'light', name: 'Ánh sáng (lux)', color: '#eab308' },
+    { key: 'temperature', name: 'Nhiệt độ (°C)', color: '#f97316', yAxisId: 'right' },
+    { key: 'humidity', name: 'Độ ẩm (%)', color: '#3b82f6', yAxisId: 'right' },
+    { key: 'light', name: 'Ánh sáng (lux)', color: '#eab308', yAxisId: 'left' },
   ];
 
   return (
@@ -570,7 +573,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             {/* Line Chart */}
             <div className="xl:col-span-2 glass-card p-5">
-              <div className="flex items-center justify-between gap-3 mb-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
                 <div>
                   <div className="flex items-center gap-2">
                     <Activity className="w-4 h-4 text-blue-600" />
@@ -578,27 +581,69 @@ export default function DashboardPage() {
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">Cập nhật tự động qua luồng SSE từ thiết bị</p>
                 </div>
+
+                {/* Badges chú thích 2 trục Y */}
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    Trục trái: Ánh sáng (lux)
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                    Trục phải: Nhiệt độ & Độ ẩm
+                  </span>
+                </div>
               </div>
 
               {chartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+                  <LineChart data={chartData} margin={{ top: 10, right: 10, left: -5, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis
                       dataKey="timestamp"
                       tickFormatter={(v) => {
                         try {
-                          return new Date(v).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                          const d = new Date(v);
+                          if (isNaN(d.getTime())) return String(v);
+                          const h = String(d.getHours()).padStart(2, '0');
+                          const m = String(d.getMinutes()).padStart(2, '0');
+                          const s = String(d.getSeconds()).padStart(2, '0');
+                          return `${h}:${m}:${s}`;
                         } catch {
-                          return v;
+                          return String(v);
                         }
                       }}
                       tick={{ fontSize: 10, fill: '#64748b' }}
                       axisLine={{ stroke: '#e2e8f0' }}
                       tickLine={false}
                       interval="preserveStartEnd"
+                      minTickGap={25}
                     />
-                    <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+
+                    {/* Cột trục Y bên trái: Ánh sáng (lux) */}
+                    <YAxis
+                      yAxisId="left"
+                      orientation="left"
+                      tick={{ fontSize: 10, fill: '#ca8a04' }}
+                      axisLine={false}
+                      tickLine={false}
+                      domain={[0, (dataMax: number) => Math.max(1000, Math.ceil(dataMax / 100) * 100)]}
+                      tickFormatter={(v) => `${v}`}
+                      width={44}
+                    />
+
+                    {/* Cột trục Y bên phải: Nhiệt độ (°C) & Độ ẩm (%) */}
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      tick={{ fontSize: 10, fill: '#2563eb' }}
+                      axisLine={false}
+                      tickLine={false}
+                      domain={[0, 100]}
+                      tickFormatter={(v) => `${v}`}
+                      width={38}
+                    />
+
                     <Tooltip content={<CustomTooltip />} />
                     <Legend
                       wrapperStyle={{ fontSize: '11px', paddingTop: '12px' }}
@@ -607,6 +652,7 @@ export default function DashboardPage() {
                     {chartLines.map((line) => (
                       <Line
                         key={line.key}
+                        yAxisId={line.yAxisId}
                         type="monotone"
                         dataKey={line.key}
                         name={line.name}
@@ -691,27 +737,6 @@ export default function DashboardPage() {
                   <p>Chưa có thiết bị nào được kết nối trong hệ thống</p>
                 </div>
               )}
-
-              {/* Stats box */}
-              <div className="glass-card p-4 space-y-2">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Thống kê</h4>
-                </div>
-                {[
-                  { label: 'Thiết bị đang bật', value: devices.filter((d) => d.currentStatus === 'ON').length, color: 'text-emerald-600', icon: <Zap className="w-3.5 h-3.5 text-emerald-600" /> },
-                  { label: 'Thiết bị đã tắt', value: devices.filter((d) => d.currentStatus === 'OFF').length, color: 'text-slate-600', icon: <ZapOff className="w-3.5 h-3.5 text-slate-400" /> },
-                  { label: 'Đang xử lý', value: devices.filter((d) => d.currentStatus === 'PENDING').length, color: 'text-amber-600', icon: <RefreshCw className="w-3.5 h-3.5 text-amber-500" /> },
-                ].map((stat) => (
-                  <div key={stat.label} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {stat.icon}
-                      <span className="text-xs text-slate-500">{stat.label}</span>
-                    </div>
-                    <span className={clsx('text-sm font-bold', stat.color)}>{stat.value}</span>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
         </main>

@@ -5,9 +5,7 @@ import {
   History,
   User,
   LogOut,
-  ChevronRight,
 } from 'lucide-react';
-import { useState } from 'react';
 import clsx from 'clsx';
 import { authService } from '../services';
 
@@ -23,37 +21,15 @@ const navItems = [
 ];
 
 export default function Sidebar(_props: SidebarProps = {}) {
-  const [collapsed, setCollapsed] = useState(false);
-
   const handleLogout = () => {
     authService.logout();
   };
 
   return (
-    <aside
-      className={clsx(
-        'flex flex-col h-screen bg-white border-r border-slate-200 relative z-20',
-        collapsed ? 'w-16' : 'w-64'
-      )}
-    >
+    <aside className="flex flex-col h-screen w-64 bg-white border-r border-slate-200 relative z-20 flex-shrink-0">
       {/* Brand Header */}
-      <div
-        className={clsx(
-          'flex items-center h-16 border-b border-slate-200 px-4',
-          collapsed ? 'justify-center' : 'justify-between'
-        )}
-      >
-        {!collapsed && (
-          <span className="text-sm font-bold text-slate-900 tracking-tight">IoT Dashboard</span>
-        )}
-
-        {/* Collapse toggle */}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 flex-shrink-0 cursor-pointer"
-        >
-          <ChevronRight className={clsx('w-3 h-3', !collapsed && 'rotate-180')} />
-        </button>
+      <div className="flex items-center h-16 border-b border-slate-200 px-6">
+        <span className="text-base font-bold text-slate-900 tracking-tight">IoT Dashboard</span>
       </div>
 
       {/* Navigation */}
@@ -65,7 +41,6 @@ export default function Sidebar(_props: SidebarProps = {}) {
               className={({ isActive }) =>
                 clsx(
                   'flex items-center gap-3 px-3 py-2.5 rounded-lg group relative overflow-hidden',
-                  collapsed && 'justify-center',
                   isActive
                     ? 'bg-blue-50 text-blue-600 font-semibold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -83,12 +58,10 @@ export default function Sidebar(_props: SidebarProps = {}) {
                       isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-blue-600'
                     )}
                   />
-                  {!collapsed && (
-                    <span className="text-sm font-medium whitespace-nowrap overflow-hidden">
-                      {item.label}
-                    </span>
-                  )}
-                  {isActive && !collapsed && (
+                  <span className="text-sm font-medium whitespace-nowrap overflow-hidden">
+                    {item.label}
+                  </span>
+                  {isActive && (
                     <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />
                   )}
                 </>
@@ -102,17 +75,12 @@ export default function Sidebar(_props: SidebarProps = {}) {
       <div className="p-2 border-t border-slate-200">
         <button
           onClick={handleLogout}
-          className={clsx(
-            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:text-red-600 hover:bg-red-50 group cursor-pointer',
-            collapsed && 'justify-center'
-          )}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:text-red-600 hover:bg-red-50 group cursor-pointer"
         >
           <LogOut className="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-red-600 transition-colors" />
-          {!collapsed && (
-            <span className="text-sm font-medium whitespace-nowrap overflow-hidden">
-              Đăng xuất
-            </span>
-          )}
+          <span className="text-sm font-medium whitespace-nowrap overflow-hidden">
+            Đăng xuất
+          </span>
         </button>
       </div>
     </aside>

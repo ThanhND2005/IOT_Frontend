@@ -108,7 +108,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               exit={{ opacity: 0, y: -10, scale: 0.95 }}
               transition={{ duration: 0.2 }}
               className={clsx(
-                'pointer-events-auto flex items-start gap-3 p-4 rounded-xl border shadow-lg',
+                'pointer-events-auto flex gap-3 px-4 py-3 rounded-xl border shadow-lg',
+                toast.message ? 'items-start' : 'items-center',
                 'bg-white/95 backdrop-blur-md',
                 toast.type === 'success' && 'border-emerald-200 shadow-emerald-500/10',
                 toast.type === 'error' && 'border-rose-200 shadow-rose-500/10',
@@ -119,7 +120,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             >
               <div
                 className={clsx(
-                  'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 border mt-0.5',
+                  'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 border',
+                  toast.message && 'mt-0.5',
                   toast.type === 'success' && 'bg-emerald-50 text-emerald-600 border-emerald-100',
                   toast.type === 'error' && 'bg-rose-50 text-rose-600 border-rose-100',
                   toast.type === 'warning' && 'bg-amber-50 text-amber-600 border-amber-100',

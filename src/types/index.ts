@@ -85,6 +85,8 @@ export interface UserResponse {
   studentCode?: string | null;
   avatarUrl?: string | null;
   githubUrl?: string | null;
+  git_url?: string | null;
+  gitUrl?: string | null;
   figmaUrl?: string | null;
   systemDocUrl?: string | null;
   apiDocUrl?: string | null;

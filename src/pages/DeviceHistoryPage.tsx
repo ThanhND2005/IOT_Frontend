@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Filter, ChevronLeft, ChevronRight, ChevronDown,
   CheckCircle2, XCircle, Clock, Zap, ZapOff, History, RefreshCw,
-  Search, RotateCcw, Calendar, Cpu, Lightbulb, Fan, SlidersHorizontal, X, ArrowUpDown
+  Search, RotateCcw, Calendar, Cpu, Lightbulb, Fan, SlidersHorizontal, X, ArrowUpDown,
+  Copy, Check
 } from 'lucide-react';
 import clsx from 'clsx';
 import Header from '../components/Header';
@@ -103,29 +104,64 @@ function DeviceTypeBadge({ type, deviceName }: { type?: DeviceType | string | nu
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
+function formatDateTime(dateInput: string | number | Date): string {
+  try {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return String(dateInput);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
+  } catch {
+    return String(dateInput);
+  }
+}
+
 // Normalize user-entered date/time to ISO-compatible format for database query
+// Ưu tiên: Năm -> Tháng -> Ngày -> Giờ -> Phút -> Giây
 function normalizeSearchTime(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return '';
 
-  // Case 1: "HH:mm DD/MM/YYYY" or "HH:mm:ss DD/MM/YYYY"
-  const timeFirstMatch = trimmed.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s+(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  if (timeFirstMatch) {
-    const time = timeFirstMatch[1];
-    const day = timeFirstMatch[2].padStart(2, '0');
-    const month = timeFirstMatch[3].padStart(2, '0');
-    const year = timeFirstMatch[4];
-    return `${year}-${month}-${day} ${time}`;
-  }
-
-  // Case 2: "DD/MM/YYYY" or "DD/MM/YYYY HH:mm"
+  // Case 0: Format dạng Ngày trước "DD/MM/YYYY" hoặc "DD/MM/YYYY HH:mm:ss"
   const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(.*)$/);
   if (ddmmyyyyMatch) {
     const day = ddmmyyyyMatch[1].padStart(2, '0');
     const month = ddmmyyyyMatch[2].padStart(2, '0');
     const year = ddmmyyyyMatch[3];
     const rest = ddmmyyyyMatch[4] ? ddmmyyyyMatch[4].trim() : '';
-    return rest ? `${year}-${month}-${day} ${rest}` : `${year}-${month}-${day}`;
+    return rest ? `${year}/${month}/${day} ${rest}` : `${year}/${month}/${day}`;
+  }
+
+  // Case 1: Format Giờ trước "HH:mm DD/MM/YYYY" hoặc "HH:mm:ss DD/MM/YYYY"
+  const timeFirstMatch = trimmed.match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s+(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (timeFirstMatch) {
+    const time = timeFirstMatch[1];
+    const day = timeFirstMatch[2].padStart(2, '0');
+    const month = timeFirstMatch[3].padStart(2, '0');
+    const year = timeFirstMatch[4];
+    return `${year}/${month}/${day} ${time}`;
+  }
+
+  // Case 2: Format Năm trước "YYYY/MM/DD..." hoặc "YYYY-MM-DD..."
+  const yyyymmddMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})(.*)$/);
+  if (yyyymmddMatch) {
+    const year = yyyymmddMatch[1];
+    const month = yyyymmddMatch[2].padStart(2, '0');
+    const day = yyyymmddMatch[3].padStart(2, '0');
+    const rest = yyyymmddMatch[4] ? yyyymmddMatch[4].trim() : '';
+    return rest ? `${year}/${month}/${day} ${rest}` : `${year}/${month}/${day}`;
+  }
+
+  // Case 3: Format Năm/Tháng "YYYY/MM" hoặc "YYYY-MM"
+  const yyyymmMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})$/);
+  if (yyyymmMatch) {
+    const year = yyyymmMatch[1];
+    const month = yyyymmMatch[2].padStart(2, '0');
+    return `${year}/${month}`;
   }
 
   return trimmed;
@@ -153,10 +189,11 @@ export default function DeviceHistoryPage() {
   const [selectedDevice, setSelectedDevice] = useState<string>('ALL');
   const [selectedAction, setSelectedAction] = useState<ActionType | 'ALL'>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<ActionStatus | 'ALL'>('ALL');
-  const [searchDate, setSearchDate] = useState<string>('');
-  const [searchTime, setSearchTime] = useState<string>('');
-  const [appliedSearchTime, setAppliedSearchTime] = useState<string>('');
+  const [searchTime, setSearchTime] = useState('');
+  const [appliedSearchTime, setAppliedSearchTime] = useState('');
   const [sortOrder, setSortOrder] = useState<'DESC' | 'ASC'>('DESC');
+
+  const datePickerRef = useRef<HTMLInputElement>(null);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -167,6 +204,16 @@ export default function DeviceHistoryPage() {
   const [showFilter, setShowFilter] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyTime = (id: string, text: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => {
+      setCopiedId((prev) => (prev === id ? null : prev));
+    }, 1500);
+  };
 
   // Fetch devices from API on component mount
   useEffect(() => {
@@ -229,7 +276,7 @@ export default function DeviceHistoryPage() {
             field: 'action',
             value: targetAction,
             operate: 'EQUAL',
-            type: 'ENUM',
+            type: 'ENUM',                                                                                                                                                                          
           });
         }
 
@@ -286,23 +333,11 @@ export default function DeviceHistoryPage() {
   }, [fetchHistory]);
 
   const handleSearch = () => {
-    let combinedTime = '';
-    const trimmedDate = searchDate.trim();
-    const trimmedTime = searchTime.trim();
-
-    if (trimmedDate && trimmedTime) {
-      combinedTime = `${trimmedDate} ${trimmedTime}`;
-    } else if (trimmedDate) {
-      combinedTime = trimmedDate;
-    } else if (trimmedTime) {
-      combinedTime = trimmedTime;
-    }
-
-    const normalized = normalizeSearchTime(combinedTime);
-    setAppliedSearchTime(normalized);
+    const normalizedTime = normalizeSearchTime(searchTime);
+    setAppliedSearchTime(normalizedTime);
     setPage(1);
-    if (page === 1 && normalized === appliedSearchTime) {
-      fetchHistory(1, pageSize, selectedDevice, selectedAction, selectedStatus, normalized, sortOrder);
+    if (page === 1 && normalizedTime === appliedSearchTime) {
+      fetchHistory(1, pageSize, selectedDevice, selectedAction, selectedStatus, normalizedTime, sortOrder);
     }
   };
 
@@ -311,21 +346,12 @@ export default function DeviceHistoryPage() {
     setSelectedAction('ALL');
     setSelectedStatus('ALL');
     setSortOrder('DESC');
-    setSearchDate('');
     setSearchTime('');
     setAppliedSearchTime('');
     setPage(1);
     fetchHistory(1, pageSize, 'ALL', 'ALL', 'ALL', '', 'DESC');
   };
 
-  // Active filter count
-  const activeFilterCount = [
-    selectedDevice !== 'ALL',
-    selectedAction !== 'ALL',
-    selectedStatus !== 'ALL',
-    appliedSearchTime !== '',
-    sortOrder !== 'DESC',
-  ].filter(Boolean).length;
 
   return (
     <div className="flex h-screen overflow-hidden bg-white">
@@ -348,11 +374,6 @@ export default function DeviceHistoryPage() {
               <div className="flex items-center gap-2.5">
                 <Filter className="w-4 h-4 text-blue-600" />
                 <span>Bộ lọc tìm kiếm lịch sử</span>
-                {activeFilterCount > 0 && (
-                  <span className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full font-medium">
-                    {activeFilterCount} bộ lọc đang áp dụng
-                  </span>
-                )}
               </div>
               <ChevronDown className={clsx('w-4 h-4 text-slate-400 transition-transform', showFilter && 'rotate-180')} />
             </button>
@@ -398,8 +419,8 @@ export default function DeviceHistoryPage() {
                         className="w-full px-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all cursor-pointer"
                       >
                         <option value="ALL">Tất cả hành động</option>
-                        <option value="ON">Bật thiết bị (ON)</option>
-                        <option value="OFF">Tắt thiết bị (OFF)</option>
+                        <option value="ON">Bật thiết bị</option>
+                        <option value="OFF">Tắt thiết bị</option>
                       </select>
                     </div>
 
@@ -418,9 +439,9 @@ export default function DeviceHistoryPage() {
                         className="w-full px-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all cursor-pointer"
                       >
                         <option value="ALL">Tất cả trạng thái</option>
-                        <option value="SUCCESS">Thành công (SUCCESS)</option>
-                        <option value="ERROR">Lỗi (ERROR)</option>
-                        <option value="PENDING">Đang xử lý (PENDING)</option>
+                        <option value="SUCCESS">Thành công</option>
+                        <option value="ERROR">Lỗi</option>
+                        <option value="PENDING">Đang xử lý</option>
                       </select>
                     </div>
 
@@ -444,85 +465,65 @@ export default function DeviceHistoryPage() {
                     </div>
                   </div>
 
-                  {/* Dòng 2: Ô chọn thời gian & nhập giờ liền nhau + Cụm nút thao tác */}
+                  {/* Dòng 2: Ô điền tìm kiếm theo thời gian + Cụm nút thao tác */}
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 pt-1">
-                    {/* Ô chọn thời gian và ô nhập giờ liền nhau */}
+                    {/* Ô điền tìm kiếm theo thời gian */}
                     <div className="flex-1 min-w-0">
                       <label className="text-xs text-slate-600 mb-1 flex items-center gap-1.5 font-medium">
                         <Calendar className="w-3.5 h-3.5 text-blue-600" />
                         Thời điểm thao tác
                       </label>
-                      <div className="flex items-center rounded-lg border border-slate-200 bg-white focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all h-[36px]">
-                        {/* Ô chọn ngày */}
-                        <div className="relative flex-1 min-w-0">
-                          <input
-                            type="date"
-                            value={searchDate}
-                            onChange={(e) => setSearchDate(e.target.value)}
-                            onClick={(e) => {
-                              try {
-                                e.currentTarget.showPicker();
-                              } catch {}
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handleSearch();
-                              } else if (e.key === 'Backspace' || e.key === 'Delete') {
-                                setSearchDate('');
-                              } else if (e.key !== 'Tab' && e.key !== 'Escape') {
-                                e.preventDefault();
-                              }
-                            }}
-                            className="w-full px-3 py-1 text-sm bg-transparent text-slate-800 placeholder-slate-400 focus:outline-none cursor-pointer"
-                            title="Chọn ngày"
-                          />
-                        </div>
-
-                        {/* Đường phân cách */}
-                        <div className="w-[1px] h-5 bg-slate-200" />
-
-                        {/* Ô chọn giờ, phút, giây */}
-                        <div className="relative flex-1 min-w-0 flex items-center">
-                          <Clock className="absolute left-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                          <input
-                            type="time"
-                            step="1"
-                            value={searchTime}
-                            onChange={(e) => setSearchTime(e.target.value)}
-                            onClick={(e) => {
-                              try {
-                                e.currentTarget.showPicker();
-                              } catch {}
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handleSearch();
-                              } else if (e.key === 'Backspace' || e.key === 'Delete') {
-                                setSearchTime('');
-                              } else if (e.key !== 'Tab' && e.key !== 'Escape') {
-                                e.preventDefault();
-                              }
-                            }}
-                            className="w-full pl-8 pr-8 py-1 text-sm bg-transparent text-slate-800 placeholder-slate-400 focus:outline-none cursor-pointer"
-                            title="Chọn giờ, phút, giây"
-                          />
-                          {(searchDate || searchTime) && (
+                      <div className="relative flex items-center">
+                        <Search className="absolute left-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={searchTime}
+                          onChange={(e) => setSearchTime(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                          placeholder="--:--:--"
+                          className="w-full pl-9 pr-16 py-1.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                        />
+                        <div className="absolute right-2.5 flex items-center gap-1">
+                          {searchTime && (
                             <button
                               type="button"
                               onClick={() => {
-                                setSearchDate('');
                                 setSearchTime('');
                                 setAppliedSearchTime('');
                                 setPage(1);
                                 fetchHistory(1, pageSize, selectedDevice, selectedAction, selectedStatus, '', sortOrder);
                               }}
-                              className="absolute right-2 p-0.5 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
-                              title="Xóa thời gian"
+                              className="p-0.5 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
+                              title="Xóa tìm kiếm thời gian"
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              try {
+                                datePickerRef.current?.showPicker();
+                              } catch {
+                                datePickerRef.current?.focus();
+                              }
+                            }}
+                            className="p-1 text-slate-400 hover:text-blue-600 rounded transition-colors cursor-pointer"
+                            title="Mở lịch chọn ngày"
+                          >
+                            <Calendar className="w-4 h-4" />
+                          </button>
                         </div>
+                        <input
+                          ref={datePickerRef}
+                          type="date"
+                          className="sr-only"
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              setSearchTime(e.target.value);
+                            }
+                          }}
+                        />
                       </div>
                     </div>
 
@@ -530,7 +531,7 @@ export default function DeviceHistoryPage() {
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={handleReset}
-                        className="flex items-center gap-1.5 px-4 h-[36px] bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-lg border border-slate-200 transition-all duration-200 cursor-pointer"
+                        className="flex items-center gap-2 px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-lg border border-slate-200 transition-all duration-200 cursor-pointer"
                       >
                         <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
                         Đặt lại
@@ -538,7 +539,7 @@ export default function DeviceHistoryPage() {
                       <button
                         onClick={handleSearch}
                         disabled={isLoading}
-                        className="flex items-center gap-1.5 px-5 h-[36px] bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-sm cursor-pointer"
+                        className="flex items-center gap-2 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-sm cursor-pointer"
                       >
                         {isLoading ? (
                           <RefreshCw className="w-4 h-4 text-white animate-spin" />
@@ -620,7 +621,32 @@ export default function DeviceHistoryPage() {
                         </td>
                         <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap border-b border-slate-100">{item.fullName || 'Admin'}</td>
                         <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap border-b border-slate-100">
-                          {new Date(item.createdAt).toLocaleString('vi-VN')}
+                          {(() => {
+                            const formattedTime = formatDateTime(item.createdAt);
+                            const isCopied = copiedId === item.id;
+                            return (
+                              <div className="flex items-center gap-1.5">
+                                <span>{formattedTime}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleCopyTime(item.id, formattedTime, e)}
+                                  className={clsx(
+                                    'p-1 rounded transition-colors cursor-pointer',
+                                    isCopied
+                                      ? 'text-emerald-600 bg-emerald-50'
+                                      : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                                  )}
+                                  title={isCopied ? 'Đã sao chép' : 'Sao chép thời điểm'}
+                                >
+                                  {isCopied ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))

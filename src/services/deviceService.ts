@@ -22,6 +22,13 @@ export const deviceService = {
     });
   },
 
+  async controlAllDevices(action: 'ON' | 'OFF'): Promise<DeviceControlResponse[]> {
+    return request<DeviceControlResponse[]>('/devices/control/all', {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    });
+  },
+
   async searchDeviceHistory(
     page = 1,
     pageSize = 10,
